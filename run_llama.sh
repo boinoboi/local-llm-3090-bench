@@ -25,7 +25,7 @@ sleep 3
 
 python3 ~/bench/measure.py --port "$PORT" --label "$LABEL" --engine llama.cpp \
   --quant "$QUANT" --spec "$SPEC" --ctx "$CTX" --gpu 0 --notes "$EXTRA" \
-  --max-prompt $((MAXCTX - 256))
+  --max-prompt $((MAXCTX - 256)) --reps ${REPS:-1}
 
 kill -INT $SRV 2>/dev/null || true
 wait $SRV 2>/dev/null || true

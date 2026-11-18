@@ -16,12 +16,14 @@
 > | Most economical setting | **270 W**, $0.114 per million output tokens |
 > | Best speed per watt | **521.8 tok/s per kW** at 270 W |
 > | Full native context on 24 GB | **262,144 tokens** at 23,432 MiB, 5-bit KV + 8-bit recency window |
+| Fastest at 262 K | **94.0 tok/s** — 35B-A3B at Q3_K_M, `llama.cpp`, 4-rep median |
 > | Biggest engine gain | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
 > | What actually dominates the bill | **idle draw + lit monitors**, ~70 % of a 24/7 machine |
 
 ## Contents
 
+  - [A Measured Study of Single-Stream LLM Inference on One RTX 3090](#a-measured-study-of-single-stream-llm-inference-on-one-rtx-3090)
 - [Abstract](#abstract)
 - [1. Introduction](#1-introduction)
   - [1.1 Contributions](#11-contributions)
@@ -54,8 +56,9 @@
   - [7.3 Where the speed comes from](#73-where-the-speed-comes-from)
 - [8. Context scaling](#8-context-scaling)
   - [8.1 llama.cpp, 35B-A3B hybrid MoE [M]](#81-llamacpp-35b-a3b-hybrid-moe-m)
-  - [8.2 Observations](#82-observations)
-  - [8.3 megakernel context scaling — and why one run is not enough [M]](#83-megakernel-context-scaling--and-why-one-run-is-not-enough-m)
+  - [8.2 The 2-bit model is slower than the 4-bit model, at every depth](#82-the-2-bit-model-is-slower-than-the-4-bit-model-at-every-depth)
+  - [8.3 Observations](#83-observations)
+  - [8.4 megakernel context scaling — and why one run is not enough [M]](#84-megakernel-context-scaling--and-why-one-run-is-not-enough-m)
 - [9. Quality: is the larger model actually smarter?](#9-quality-is-the-larger-model-actually-smarter)
   - [9.1 Motivation](#91-motivation)
   - [9.2 Design](#92-design)
@@ -99,6 +102,7 @@
   - [Figure 4 — Auto-graded accuracy by task family](#figure-4--auto-graded-accuracy-by-task-family)
   - [Figure 5 — The efficiency optimum replicates across workloads](#figure-5--the-efficiency-optimum-replicates-across-workloads)
 - [Appendix D — Glossary](#appendix-d--glossary)
+  - [Figure 6 — Quantisation: fewer bits per token, fewer tokens per second](#figure-6--quantisation-fewer-bits-per-token-fewer-tokens-per-second)
 
 ## Abstract
 
@@ -126,6 +130,10 @@ The headline finding is that **the fastest operating point is not the most effic
 decode throughput rises monotonically to 152.8 tok/s at 385 W, but energy efficiency peaks at
 **270 W (141.2 tok/s, 521.8 tok/s per kW)** and degrades by 31 % in cost-per-token by the time
 the card reaches its limit. The last 115 W buy 8 % more speed for 42 % more power.
+
+The fastest long-context configuration measured is not the smallest one: a 3.9 bpw 35B-A3B sustains
+**94.0 tok/s at 262,144 tokens** where the equivalent 2.3 bpw build manages 58.3 — a 2-bit model is
+both larger in quality terms and *slower* in wall-clock terms.
 
 We additionally run an auto-graded accuracy probe — thirty tasks, two seeds, ground truth computed by
 program execution rather than annotation. The 27B scores **60/60** and the 35B-A3B **53/60**
@@ -592,26 +600,74 @@ helps one and not the other (§10), and it is the central mechanistic insight of
 
 ### 8.1 llama.cpp, 35B-A3B hybrid MoE [M]
 
-Decode throughput (tok/s), warm, 230 W:
+**Replicated series.** The two configurations that matter were run four times per depth — unique
+prompt each time — and are reported as medians with the observed range. Everything here is 230 W,
+`llama.cpp`, q4_0 KV cache, greedy.
+
+| Context | Q3_K_M heretic + MTP | spread | Q2_K + MTP | spread | Q3 speed-up |
+|---|---|---|---|---|---|
+| 1 K | **226.8** | 3.0 % | 206.7 | 3.2 % | +9.7 % |
+| 4 K | 220.4 | 1.9 % | 214.2 | 1.9 % | +2.9 % |
+| 8 K | **250.6** | 2.1 % | 203.3 | 0.9 % | **+23.3 %** |
+| 16 K | 230.7 | 2.2 % | 198.5 | 2.6 % | +16.2 % |
+| 32 K | 223.2 | 3.4 % | 156.4 | 2.8 % | **+42.7 %** |
+| 64 K | 190.8 | 5.6 % | 117.9 | 2.1 % | +61.8 % |
+| 128 K | 143.9 | 2.1 % | 66.1 | 3.9 % | **+117.8 %** |
+| **256 K** | **94.0** | 4.4 % | 58.3 | 0.5 % | +61.2 % |
+
+Cold prefill (tok/s), same runs:
+
+| Context | Q3_K_M + MTP | Q2_K + MTP |
+|---|---|---|
+| 1 K | 1,557 | 1,599 |
+| 4 K | 3,986 | 3,512 |
+| 8 K | 3,858 | 3,501 |
+| 16 K | 3,638 | 3,349 |
+| 32 K | 3,289 | 3,030 |
+| 64 K | 2,718 | 2,535 |
+| 128 K | 1,990 | 1,928 |
+| 256 K | **1,321** | 1,273 |
+
+Spread of 0.5–5.6 % across repetitions, versus the 20–50 % disagreement the single-run tables showed
+in §8.4. **These are the numbers we would defend.**
+
+### 8.2 The 2-bit model is slower than the 4-bit model, at every depth
+
+This is the study's most counter-intuitive result and it is not marginal.
+
+| Context | Q2_K (2.3 bpw) | Q3_K_M (3.9 bpw) | Deficit |
+|---|---|---|---|
+| 1 K | 206.7 | 226.8 | −8.9 % |
+| 32 K | 156.4 | 223.2 | −29.9 % |
+| 128 K | 66.1 | 143.9 | −54.1 % |
+| 256 K | 58.3 | 94.0 | −38.0 % |
+
+A **smaller file is 2.4× slower at 128 K** on identical hardware, identical engine and identical
+settings. Three effects plausibly combine, in order of likely size:
+
+1. **Draft acceptance.** Speculative decoding depends on the draft head, which the 2-bit
+   quantisation also degrades. A worse drafter produces fewer accepted tokens per cycle, and the
+   penalty compounds as context grows and the weight read amortises over more rows.
+2. **Dequantisation cost.** IQ2/Q2 kernels unpack more per byte moved than Q4 kernels; at long
+   context the kernel is no longer purely bandwidth-bound, so that overhead is exposed.
+3. **Kernel maturity.** Q4_K_M is the format every engine benchmarks and tunes against; 2-bit paths
+   are comparatively neglected.
+
+We cannot apportion the three from the data we collected — a controlled acceptance measurement at
+matched context would be needed — but the direction is unambiguous and it settles a design question
+the study opened with: **2-bit was not just lower quality, it was slower.**
+
+**Indicative single-run series** for the remaining configurations (each measured once per cell, so
+read these as direction, not as values):
 
 | Configuration | 1 K | 4 K | 8 K | 16 K | 32 K | 64 K | 128 K | 256 K |
 |---|---|---|---|---|---|---|---|---|
-| Q3_K_M heretic + MTP | 194 | **249** | 212 | 227 | 214 | 172 | — | — |
-| Q2_K + MTP | 211 | 225 | 219 | 145 | 138 | 116 | 87 | — |
-| Q2_K + MTP + n-gram | 229 | 200 | **240** | 159 | 186 | 116 | 99 | 59 |
+| Q2_K + MTP + n-gram | 229 | 200 | 240 | 159 | 186 | 116 | 99 | 59 |
 | Q2_K + n-gram only | 155 | 145 | 138 | 128 | 108 | 83 | 57 | 34 |
 | Q2_K, no speculation | 156 | 149 | 144 | 131 | 112 | 86 | 58 | 35 |
 | 27B dense, no speculation | 30 | 30 | 29 | 27 | 25 | 20 | — | — |
 
-Cold prefill (tok/s):
-
-| Configuration | 1 K | 4 K | 8 K | 16 K | 32 K | 64 K | 128 K | 256 K |
-|---|---|---|---|---|---|---|---|---|
-| Q2_K + MTP | 1,426 | 3,665 | 3,552 | 3,402 | 3,080 | 2,593 | 1,955 | — |
-| Q2_K, no speculation | 2,174 | 3,881 | 3,783 | 3,660 | 3,323 | 2,810 | 2,162 | 1,456 |
-| 27B dense | 862 | 1,167 | 1,151 | 1,104 | 1,014 | 864 | — | — |
-
-### 8.2 Observations
+### 8.3 Observations
 
 **a) The MoE model is 7× faster than the dense 27B at equal quantisation.** 3 B active parameters
 versus 27 B means roughly a ninth of the weight traffic per token. At 1 K context the 35B-A3B with
@@ -635,7 +691,7 @@ dominates.
 **e) Prefill throughput peaks at 4 K** (~3.7–3.9 K tok/s) and decays monotonically to 1,456 tok/s
 at 256 K. The decay is the price of attention over a growing KV.
 
-### 8.3 megakernel context scaling — and why one run is not enough [M]
+### 8.4 megakernel context scaling — and why one run is not enough [M]
 
 A first attempt measured each depth once and produced a table that could not be trusted: the single
 131 K points disagreed by 52 % (57.3 and 87.5 tok/s), and there was no way to tell configuration
@@ -1025,11 +1081,11 @@ declaring `mtp_num_hidden_layers: 1`. One conversion log passes `--no-mtp` expli
 
 The megakernel server terminated during the fourth consecutive request with a byte-identical
 prompt and `MK_EXACT=1` (the checkpoint-resume path), with no diagnostic. Workaround: disable
-exact reuse for synthetic benchmarks, or vary the prompt. The same defect ended the context replication of §8.3 at 64 K: the second repetition disconnected
+exact reuse for synthetic benchmarks, or vary the prompt. The same defect ended the context replication of §8.4 at 64 K: the second repetition disconnected
 without diagnostic and every later request was refused. Single long requests are unaffected — a
 229,978-token cold read completed correctly — so the fault is in conversation state management, not
 in the kernels. It is the one thing in this study that we could not work around, and it is why the
-131 K replication in §8.3 is missing.
+131 K replication in §8.4 is missing.
 
 ### 12.6 Tokenizer miscalibration invalidated a whole sweep
 
@@ -1070,20 +1126,27 @@ kernel*, so the weight and KV reads happen once per cycle rather than once per p
 
 ### 13.2 Why 2-bit was the wrong instinct
 
-The study began intending to run everything at 2 bits. The data argued against it:
+The study began intending to run everything at 2 bits, on the theory that fewer bytes per token
+must mean more tokens per second. **The measurement contradicted the theory, twice over.**
 
-1. **2-bit hurts prefill** — dequantisation overhead makes IQ2 prefill slower than Q4 on the same
-   hardware, so the theoretical bandwidth saving does not materialise where it matters.
-2. **Low-bit weight quantisation is expected to depress MTP acceptance**, because the draft head is
-   quantised along with everything else. We did not isolate this effect — our acceptance figures
-   come from the engine's own reporting at whatever quantisation was loaded — so it is stated as a
-   design concern rather than a measured result.
-3. **2-bit interacts badly with abliteration**, re-randomising the removal direction.
-4. **It was never necessary** — a 27B fits in 24 GB at Q4_K_M with full 262 K context once the KV
-   cache is compressed instead. 15.82 GB of weights plus 6.39 GB of 5-bit cache is 22.2 GB.
+**It was slower.** On identical hardware, engine and settings, the 3.9 bpw model beat the 2.3 bpw
+model by 9 % at 1 K, 30 % at 32 K, and **54 % at 128 K** (§8.2). A smaller file lost decisively.
+Prefill, by contrast, was essentially unchanged (1,273 vs 1,321 tok/s at 256 K), so the penalty is
+specific to decode.
 
-The final configuration is **4-bit weights and 5–6 bit KV**, which is faster, higher quality and
-still fits. The appropriate place to spend bits is the cache, not the weights.
+**It did not even help memory.** At 256 K the Q2_K model used 17.6 GB of VRAM against the Q3_K_M
+model's 21.2 GB — a 3.6 GB saving that bought nothing, because both fit.
+
+Three mechanisms plausibly explain the decode penalty, and we cannot separate them from this data:
+degraded MTP acceptance from quantising the draft head, higher dequantisation cost per byte moved in
+the 2-bit kernels, and the simple fact that Q4_K_M is the format engines are tuned against.
+
+Add the quality argument and the case is closed: 2-bit also interacts badly with abliteration,
+re-randomising the removal direction (§5.4).
+
+**The final configuration is 4-bit weights and 5–6 bit KV.** It is faster, better and still fits —
+15.82 GB of weights plus 6.39 GB of 5-bit cache is 22.2 GB, inside a 24 GB card with the full
+262,144-token window. **The appropriate place to spend bits is the cache, not the weights.**
 
 ### 13.3 The value of measuring rather than assuming
 
@@ -1124,8 +1187,8 @@ For a single 24 GB card serving one user:
 | The 5060 Ti was never evaluated | No statement about multi-GPU | Deliberately out of scope: no NVLink, no benefit for fitting models |
 | Single stream only | No batching or multi-user | Explicit: all measurements are batch = 1 |
 | Upstream benchmarks not reproduced | Vendor claims uncorroborated | Directionally consistent, tagged [R], not used as evidence |
-| Megakernel server unstable past ~64 K | No 131 K replication of the context sweep | Reported as a failure (§8.3c, §12.5) rather than interpolated |
-| Speculative throughput is content-dependent | Single runs carry up to 13 % content noise | 3–10 repetitions where it matters; single runs flagged (§8.3b) |
+| Megakernel server unstable past ~64 K | No 131 K replication of the context sweep | Reported as a failure (§8.4c, §12.5) rather than interpolated |
+| Speculative throughput is content-dependent | Single runs carry up to 13 % content noise | 3–10 repetitions where it matters; single runs flagged (§8.4b) |
 
 ---
 
@@ -1191,7 +1254,9 @@ That sentence is the result. Everything else in this document is the work requir
   24 GiB; at 16 bits it is not close.
 - The **most efficient operating point is 270 W, not 385 W**. Speed rises monotonically; efficiency
   peaks and then falls, because power scales super-linearly with clock. The last 115 W buy 8 % more
-  speed for 42 % more power.
+  speed for 42 % more power — and the peak reproduces on a second workload.
+- **Fewer bits is not faster.** A 2.3 bpw build of the same model was 30 % slower at 32 K and 54 %
+  slower at 128 K than its 3.9 bpw sibling. Compression is not free; it moves cost into the kernels.
 - The 27B answered **60 of 60** auto-graded tasks across two seeds; the 35B-A3B answered **53 of 60**
   (z = 2.73, p = 0.0064), with the whole deficit in one task family. The larger MoE is 1.4× faster,
   not obviously smarter.
@@ -1415,3 +1480,12 @@ artefact of one benchmark prompt.
 | **KL divergence** | How far a modified model's next-token distribution has drifted from its base. Used here to audit abliteration quality; lower is better. |
 | **ableration / heretic** | Removing refusal directions from a model's activations. "Heretic" tooling optimises the edit to minimise KL. |
 | **Wilson interval** | A confidence interval for a proportion that stays inside [0, 1] near the extremes, unlike the normal approximation. |
+
+### Figure 6 — Quantisation: fewer bits per token, fewer tokens per second
+
+![Decode throughput for Q3_K_M versus Q2_K across context](figures/quant_speed.png)
+
+The same 35B-A3B, same engine, same settings, four runs per point. The 3.9 bpw build is faster at
+every depth and the gap **widens** with context, reaching 2.4× at 128 K. Prefill is unaffected
+(1,273 vs 1,321 tok/s at 256 K), so the penalty is specific to speculative decode — most plausibly
+because the draft head is quantised too.

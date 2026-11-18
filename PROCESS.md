@@ -1,47 +1,45 @@
 # GPU inference benchmark — 3090 + 5060 Ti
 
 ## Goal
-Measure real decode tok/s and prefill tok/s vs context fill (1k → 262k) for the three
-local model families, pick the best engine per model, emit `results.csv`.
+Measure real decode tok/s and prefill tok/s vs context fill (1 K → 262 K) for the local model
+families, pick the best engine per model, emit CSVs and a publishable research write-up.
 
-## Hardware (fixed)
-- GPU0 RTX 3090 24GB, sm_86, 936 GB/s — power limit capped at **230 W** by user (default 350 W)
-- GPU1 RTX 5060 Ti 16GB, sm_120 — limit 150 W (min), max 200 W
-- i9-14900K, 125 GiB RAM, NVMe with ~670 GiB free
+**Status: study written and published.** Document: `~/Videos/Learn/RTX-3090-Inference-Study.md`
+(and `STUDY.md` in the repo).
 
-## Baseline (restore after tests)
-- 3090 power.limit = 230 W (default 350, min 100, max 385)
-- 5060 Ti power.limit = 150 W (default 180, min 150, max 200)
-- stored: ~/bench/baseline_power.csv
+## Hardware
+- GPU0 RTX 3090 24 GB, sm_86, 936 GB/s — power limit set to **270 W** (user's choice; default 350)
+- GPU1 RTX 5060 Ti 16 GB — unused for inference
+- i9-14900K (PL1 95 W / PL2 125 W), 125 GiB RAM, ~670 GiB free
 
-## Artifacts
+## Deliverables
 | path | what |
 |---|---|
-| ~/models/qwen3.6/ | huihui 35B-A3B Q2_K (MTP verified), llmfan46 Q3_K_M heretic (KL 0.0015, MTP), mmproj x2 |
-| ~/models/qwen3.8/ | HauhauCS 27B Q2_K_P (MTP), NInfer 27B DFlash2 (14 GiB container) |
-| ~/models/mimo2.6/ | heretic IQ2_M (MTP LOST — needs reconvert), mmproj |
-| ~/src/ninfer | spk-c fork, sm_86, CUDA 13.4 |
-| ~/src/llama.cpp | upstream, to build with GGML_CUDA |
+| `~/Videos/Learn/RTX-3090-Inference-Study.md` | the paper, ~1400 lines, 12k words |
+| https://github.com/boinoboi/local-llm-3090-bench | data + code + figures |
+| `results_all.csv` | everything, normalised |
+| `results_power.csv` | power sweep, 2 workloads, validity flags |
+| `results_accuracy.csv` | auto-graded accuracy, 6 model/seed runs |
+| `results_llama.csv` | llama.cpp context sweeps |
+| `results_mk.csv`, `results_mk_context.csv` | megakernel context data |
+| `results_27b_spec.csv` | 27B speculation ladder |
+| `plots/`, `figures/` | 5 generated figures |
 
-## Key design facts (verified, not assumed)
-- Qwen3.6-35B-A3B: 40 layers = 30 linear_attention + 10 full_attention; 2 KV heads, hd 256; 256 experts, 8 active; ctx 262144; MTP 1 (`nextn` tensor present in Q2_K).
-- Qwen3.8-27B: 64 layers = 48 linear + 16 full; 4 KV heads, hd 256; ctx 262144; MTP 1.
-- MiMo-V2.6-9B: 32 layers, hybrid (ssm_* tensors), 4 KV heads, hd 256, vocab 248320, ctx 262144, MTP 1.
-- KV @262k: 35B-A3B 20 KB/tok → 1.35 GB @q4; 27B 64 KB/tok → 4.3 GB @q4; MiMo ~32 KB/tok → 2.2 GB @q4.
+## Key findings
+1. Megakernel 152.8 tok/s vs llama.cpp 71.1 at equal power — 1.54× at ~2× the precision.
+2. Power/performance frontier peaks in efficiency at **270 W** on two independent workloads;
+   speed keeps rising to 385 W. Last 115 W = +8 % speed for +42 % power.
+3. Full 262,144-token context fits 24 GB via 5-bit KV + 8-bit recency window (23,432 MiB).
+4. 27B scored 60/60 on auto-graded tasks vs 35B-A3B 53/60 (z = 2.73, p = 0.0064).
+5. Speculative throughput is content-dependent: acceptance 54–73 % → up to 13 % spread.
+6. `nvidia-smi -pl` fails silently ~16 % of the time; always validate draw.
 
-## Plan
-1. [x] free VRAM (ollama stopped+disabled)
-2. [ ] build ninfer sm_86
-3. [ ] build llama.cpp CUDA (sm_86 + sm_120)
-4. [ ] harness: context sweep 1k..262k, cold prefill / warm prefill / decode / TTFT / VRAM
-5. [ ] runs: 35B Q2_K, 35B Q3_K_M, 27B Q2_K_P, 27B NInfer, MiMo IQ2_M
-6. [ ] spec on/off (MTP, DFlash2, ngram, cache-reuse) deltas
-7. [ ] power A/B at 230 W vs 350 W
-8. [ ] results.csv + README
-9. [ ] restore power limits
+## Open items
+- [ ] 131 K megakernel replication — blocked by server instability past ~64 K
+- [ ] `draft-dflash2,draft-mtp` stacking never completed
+- [ ] 5060 Ti never evaluated (deliberate: no NVLink)
 
 ## Decisions
-- Keep ComfyUI alive (368 MiB, interactive app, not a service).
-- Cold prefill = unique random filler prefix (defeats prefix cache). Warm = identical repeat.
-- Use llama-server `timings` fields for prompt/predicted rates.
-- 200 GiB disk / 1 TB network budget.
+- Keep ComfyUI alive (368 MiB, interactive).
+- Stop ollama permanently during measurements.
+- Report single measurements as indicative only; 3–10 reps where claims depend on them.
