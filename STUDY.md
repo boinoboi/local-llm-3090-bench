@@ -60,6 +60,7 @@
   - [8.2 The 2-bit model is slower than the 4-bit model, at every depth](#82-the-2-bit-model-is-slower-than-the-4-bit-model-at-every-depth)
   - [8.3 Observations](#83-observations)
   - [8.4 megakernel context scaling — and why one run is not enough [M]](#84-megakernel-context-scaling--and-why-one-run-is-not-enough-m)
+  - [8.5 What prefix caching is actually worth [M]](#85-what-prefix-caching-is-actually-worth-m)
 - [9. Quality: is the larger model actually smarter?](#9-quality-is-the-larger-model-actually-smarter)
   - [9.1 Motivation](#91-motivation)
   - [9.2 Design](#92-design)
@@ -111,47 +112,44 @@
 
 ## Abstract
 
-We present a measurement study of single-stream, single-GPU large-language-model inference
-on a consumer workstation, covering three questions that are usually answered by folklore
-rather than data: **which engine is fastest**, **how speed decays with context length**, and
-**what that speed actually costs in watts and rupees**.
+We present a measurement study of single-stream, single-GPU large-language-model inference on a
+consumer workstation, covering three questions usually answered by folklore rather than data:
+**which engine is fastest**, **how speed decays with context length**, and **what that speed costs
+in watts and rupees**.
 
-Using a 27-billion-parameter hybrid-attention model (Qwen3.8-27B) and a 35-billion-parameter
-sparse mixture-of-experts model (Qwen3.6-35B-A3B), we compare two serving stacks — stock
-`llama.cpp` with Multi-Token Prediction (MTP) speculative decoding, and a purpose-built
-single-kernel CUDA engine (`qwen38-megakernel`) — across context depths from 1,024 to 229,978
-tokens.
+Using a 27-billion-parameter hybrid-attention model (Qwen3.8-27B) and a 35-billion-parameter sparse
+mixture-of-experts model (Qwen3.6-35B-A3B), we compare two serving stacks — stock `llama.cpp` with
+Multi-Token Prediction (MTP) speculative decoding, and a purpose-built single-kernel CUDA engine
+(`qwen38-megakernel`) — across context depths from 1,024 to 262,144 tokens.
 
 Holding the model class fixed, at 8,192-token context the megakernel delivers **152.3 tokens/s at
 385 W** and **109.4 tokens/s at 230 W**, against `llama.cpp`'s **71.1 tokens/s at 230 W**. That is a
-**1.5×** advantage at equal power and **2.1×** at the engine's higher operating point, while carrying
-roughly **twice the weight precision** (Q4_K_M versus IQ2_XS) and reproducing the reference
-distribution at least as faithfully. Across all configurations the fastest single stream measured is
-not that engine but a 35B-A3B mixture-of-experts on `llama.cpp`: **250.6 tokens/s at 8 K** and
-**94.0 tokens/s at the full 262,144-token window**. We further characterise the full 262,144-token native window on a 24 GB card
-using mixed-precision KV presets, and we quantify the **power/performance frontier** with **115
-validated measurements** across eleven power limits between 230 W and 385 W, repeated on two
-independent prompt workloads.
+**1.5×** advantage at equal power and **2.1×** at the engine's upper operating point, carrying roughly
+**twice the weight precision** (Q4_K_M versus IQ2_XS) and no measured accuracy penalty. Across all
+configurations the fastest single stream is a 35B-A3B on `llama.cpp`: **250.6 tokens/s at 8 K**,
+sustaining **94.0 tokens/s with the full 262,144-token window resident** — a window that fits in
+24 GB only when the KV cache is stored at 5 bits with an 8-bit recency window.
 
-The headline finding is that **the fastest operating point is not the most efficient one**:
-decode throughput rises monotonically to 152.8 tok/s at 385 W, but energy efficiency peaks at
-**270 W (141.2 tok/s, 521.8 tok/s per kW)** and degrades by 31 % in cost-per-token by the time
-the card reaches its limit. The last 115 W buy 8 % more speed for 42 % more power.
+The headline finding is that **the fastest operating point is not the most efficient one**. Decode
+throughput rises monotonically to 152.8 tokens/s at 385 W, but energy efficiency peaks at **270 W
+(141.2 tokens/s, 521.8 tokens/s per kW)** and costs 31 % more per token by the time the card reaches
+its limit: the last 115 W buy 8 % more speed for 42 % more power. That peak reproduces at 270 W on a
+second, independent prompt workload, across **115 validated measurements** at eleven power limits.
 
-The fastest long-context configuration measured is not the smallest one: a 3.9 bpw 35B-A3B sustains
-**94.0 tok/s at 262,144 tokens** where the equivalent 2.3 bpw build manages 58.3 — a 2-bit model is
-both larger in quality terms and *slower* in wall-clock terms.
+Compression was not free either. A 2.3 bpw build of the same 35B was **30 % slower at 32 K and 54 %
+slower at 128 K** than its 3.9 bpw sibling, on identical hardware and settings — fewer bits per token
+buying fewer tokens per second.
 
 We additionally run an auto-graded accuracy probe — thirty tasks, two seeds, ground truth computed by
 program execution rather than annotation. The 27B scores **60/60** and the 35B-A3B **53/60**
-(two-proportion z = 2.73, p = 0.0064), with the entire deficit concentrated in character counting —
-arithmetic and code-output prediction are tied at 100 % on both seeds.
-We report that result with its confounds rather than as a general ranking.
+(two-proportion z = 2.73, p = 0.0064), with the entire deficit concentrated in character counting;
+arithmetic and code-output prediction are tied at 100 % on both seeds. We report that result with its
+confounds rather than as a general ranking.
 
-We also document seven failure modes encountered during the study — including a silent
-`nvidia-smi -pl` failure that invalidated 17 of 108 power measurements, and an engine that
-segfaults on an unsupported KV-cache dtype — because these are the obstacles that make
-published numbers irreproducible in practice.
+Finally we document seven failure modes — including a silent `nvidia-smi -pl` failure that invalidated
+17 of 108 power measurements, and an engine that segfaults on an unsupported KV-cache dtype — because
+these are the obstacles that make published numbers irreproducible in practice. Every headline figure
+in this document is asserted against the raw data by a 21-check test suite.
 
 **Keywords:** local inference, RTX 3090, speculative decoding, MTP, hybrid attention,
 Gated DeltaNet, KV-cache quantisation, mixture-of-experts, energy efficiency, power capping.
@@ -774,6 +772,35 @@ separate the two causes with the data collected, because the prompts differ alon
 **We therefore report the CLI figure as an upper bound for a maximally predictable workload and do
 not claim a server/CLI speed-up.** The one thing the two paths do establish is that the engine is
 stable on the CLI at 115 K and unstable on the server at the same depth — which is what (c) is about.
+
+
+### 8.5 What prefix caching is actually worth [M]
+
+The replicated runs measured every depth twice on identical text: once cold, and once with the prompt
+already in the cache. The difference is the entire value of a conversational follow-up.
+
+| Context | Cold TTFT | Warm TTFT | Speed-up | Cold prefill | Warm prefill |
+|---|---|---|---|---|---|
+| 1 K | 0.67 s | 0.027 s | 25× | 1,557 tok/s | 159 tok/s |
+| 8 K | 2.14 s | 0.033 s | 65× | 3,858 | 148 |
+| 32 K | 10.00 s | 0.056 s | 179× | 3,289 | 124 |
+| 64 K | 24.18 s | 0.074 s | 327× | 2,718 | 118 |
+| 128 K | 65.91 s | 0.121 s | 545× | 1,990 | 96 |
+| **256 K** | **197.99 s** | **0.219 s** | **904×** | 1,321 | 69 |
+
+Two things follow.
+
+**a) The benefit scales with context, so caching matters most where it is hardest.** At 1 K it saves
+two thirds of a second; at 256 K it saves **three minutes and eighteen seconds per turn**. A
+conversation at that depth is unusable without prefix reuse and completely fluid with it.
+
+**b) "Warm prefill tok/s" is not a throughput figure.** Those 69–159 tok/s values are the handful of
+new tokens processed behind a huge cached prefix, divided by a few milliseconds — they measure
+overhead, not speed. The honest metric is TTFT, and that is why this table reports both.
+
+Note that the warm row does not eliminate *decode* cost: after the cached prefill, generation still
+runs at the depth-dependent rates of §8.1. Caching removes the read of the prompt, not the cost of
+attending to it afterwards. That distinction is the whole reason §8.1 and §8.5 have different shapes.
 
 ## 9. Quality: is the larger model actually smarter?
 
