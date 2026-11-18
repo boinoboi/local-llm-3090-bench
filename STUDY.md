@@ -104,6 +104,10 @@
   - [Figure 5 — The efficiency optimum replicates across workloads](#figure-5--the-efficiency-optimum-replicates-across-workloads)
 - [Appendix D — Glossary](#appendix-d--glossary)
   - [Figure 6 — Quantisation: fewer bits per token, fewer tokens per second](#figure-6--quantisation-fewer-bits-per-token-fewer-tokens-per-second)
+- [Appendix E — Configuration manifest](#appendix-e--configuration-manifest)
+  - [Models](#models)
+  - [Serve commands](#serve-commands)
+  - [Environment invariants worth recording](#environment-invariants-worth-recording)
 
 ## Abstract
 
@@ -1505,3 +1509,68 @@ The same 35B-A3B, same engine, same settings, four runs per point. The 3.9 bpw b
 every depth and the gap **widens** with context, reaching 2.2× at 128 K. Prefill is unaffected
 (1,273 vs 1,321 tok/s at 256 K), so the penalty is specific to speculative decode — most plausibly
 because the draft head is quantised too.
+
+---
+
+## Appendix E — Configuration manifest
+
+Every measured configuration, with the artefact and the exact serve flags. Line widths are the
+file sizes on disk; the two `llama.cpp` configurations marked **replicated** are the ones behind the
+§8.1 table.
+
+### Models
+
+| Artefact | Size | Bits/weight | MTP | Used for |
+|---|---|---|---|---|
+| `Huihui-Qwen3.6-35B-A3B-abliterated-Q2_K.gguf` | 12.34 GiB | ~2.3 | yes (`nextn` verified) | Q2 series |
+| `Qwen3.6-35B-A3B-…-heretic-…-Q3_K_M.gguf` | 16.08 GiB | ~3.9 | yes | **replicated series** |
+| `Qwen3.8-27B-Turbo-…-IQ2_XS-mtp.gguf` | 8.17 GiB | ~2.3 | yes | 27B speculation ladder |
+| `Qwen3.8-27B-UD-Q4_K_M.gguf` | 15.43 GiB | ~4.5 | yes | megakernel, power sweep, accuracy |
+| `Qwen3.8-27B-Uncensored-…-Q2_K_P.gguf` | 9.94 GiB | ~2.4 | yes | 27B dense baseline |
+| `MiMo-V2.6-…-heretic.i1-IQ2_M.gguf` | 3.36 GiB | ~2.3 | **no** (dropped) | MTP-loss finding only |
+| `Qwen3.8-27B-DFlash2-Q8_0.gguf` | 1.92 GiB | n/a (drafter) | n/a | DFlash2 comparison |
+| `Huihui-…-Vision-DFlash2-MTP.ninfer` | 13.99 GiB | ~3.0 | yes | NInfer attempt (SIGSEGV on sm_86) |
+
+### Serve commands
+
+**`llama.cpp`, replicated configuration** (§8.1). `-ctk/-ctv q4_0` is what makes 262 K fit; `-dev CUDA0`
+prevents the wrong GPU being selected.
+
+```bash
+llama-server -m <model>.gguf -ngl 99 -dev CUDA0 -c 262144 -np 1 \
+  -ctk q4_0 -ctv q4_0 -fa on \
+  --spec-type draft-mtp --spec-draft-n-max 3 \
+  --cache-reuse 256 -b 4096 -ub 1024
+```
+
+**`llama.cpp`, 27B speculation ladder** (§7.2) — the only difference is `--spec-type`:
+
+```bash
+--spec-type none            # baseline
+--spec-type draft-mtp       # native MTP
+--spec-type draft-dflash2 -md Qwen3.8-27B-DFlash2-Q8_0.gguf
+```
+
+**megakernel, full 262,144-token window** (§6.2, §8.4):
+
+```bash
+export MK_KV='K*=5r,V*=5' MK_KV_WIN=2048 MK_PF_CAP=1024
+export MK_KEEP_WARM_S=0 MK_EXACT=1 CUDA_VISIBLE_DEVICES=0
+./qwen38_mk -m Qwen3.8-27B-UD-Q4_K_M.gguf -c 262144 -d 7 --kv q8 \
+  --draft-vocab draft_vocab_32k.bin
+```
+
+**megakernel, power sweep** (§10) — identical except that `MK_EXACT=0` and the KV preset is left at
+`q8_0`, which is what the 8 K sweep used.
+
+### Environment invariants worth recording
+
+| Setting | Value during measurement |
+|---|---|
+| `power-profiles-daemon` | stopped (it silently reverts `nvidia-smi -pl`) |
+| GPU power limit | 230 W for §7–§9, 270 W thereafter; 385 W for the power sweep |
+| `ollama` | stopped and disabled |
+| ComfyUI | left running (368 MiB) — noted as a VRAM consumer |
+| Display server | Hyprland, two 1080p panels, blanking at 5 min without lock |
+| Python environment | `~/bench/.venv`, matplotlib 3.11.2 |
+| Kernel / driver | Linux 7.2.9-2-cachyos, NVIDIA 615.78.08, CUDA 13.4.92 |
