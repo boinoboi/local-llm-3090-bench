@@ -277,10 +277,10 @@ limit to expose the frontier rather than a single operating point.
 
 **Positioning.** Public serving benchmarks overwhelmingly report tokens/s at a default power limit
 on datacentre accelerators, and rarely report the power/performance frontier on consumer hardware.
-The value of this study is not a new algorithm but a *validated* measurement: 193 logged
-measurements, an explicit draw-validation filter that rejects 15.7 % of attempted power points, and
-documented failure modes. We treat the methodology (§4) as a contribution of equal weight to the
-results.
+The value of this study is not a new algorithm but a *validated* measurement: **550 logged rows across
+nine result files** — timed context sweeps, power sweeps and graded answers — an explicit
+draw-validation filter that rejects 15.7 % of attempted power points, and documented failure modes.
+We treat the methodology (§4) as a contribution of equal weight to the results.
 
 ---
 
@@ -552,7 +552,14 @@ Both engines on Qwen3.8-27B-class weights, 8,192-token context, power limit 230 
 | `llama.cpp` + MTP (3 drafts) | IQ2_XS, 8.17 GB | **71.1 tok/s** | 1.00× |
 | megakernel + MTP (7 drafts) | UD-Q4_K_M, 15.43 GB | **109.4 tok/s** | **1.54×** |
 
-At higher power limits the gap widens, because the megakernel is compute-bound while llama.cpp is
+Both engines respond very differently to the same increase in power. Raising the limit from 230 W to
+270 W moved `llama.cpp` from 71.1 to **75.2 tok/s** (+5.8 %, four runs, same model and prompt family)
+— barely more than the run-to-run noise. Over the same interval the megakernel went from 109.4 to
+**141.2 tok/s** (+29 %). A bandwidth-bound decoder is already at its ceiling at 230 W; a fused,
+compute-bound one is not. *We do not state an absolute ratio at 270 W because the two were measured on
+different prompt families, but the asymmetry is unambiguous.*
+
+At higher power limits the gap therefore widens, because the megakernel is compute-bound while llama.cpp is
 bandwidth-bound:
 
 | Power limit | megakernel @ 8 K | vs llama.cpp @ 230 W |
@@ -1434,7 +1441,10 @@ peak draw 230 W despite a requested limit of 290 W
 
 | File | Contents |
 |---|---|
-| `results_all.csv` | 193 normalised rows, every measurement in the study |
+| `results_all.csv` | performance rows, normalised across engines (pre-accuracy run) |
+| `results_llama_rep3.csv` | 64 rows: the replicated 35B series behind §8.1 |
+| `results_27b_270w.csv` | 32 rows: 27B at the 270 W operating point |
+| `results_mk_context.csv` | 10 rows: megakernel context replication |
 | `results_llama.csv` | 87 rows: `llama.cpp` context sweeps, 6 configurations |
 | `results_mk.csv` | 16 rows: megakernel context sweeps |
 | `results_power.csv` | 91 valid rows of 108 attempted, with `valid` and `draw_W_peak` |
