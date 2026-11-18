@@ -94,6 +94,7 @@
   - [13.2 Why 2-bit was the wrong instinct](#132-why-2-bit-was-the-wrong-instinct)
   - [13.3 The value of measuring rather than assuming](#133-the-value-of-measuring-rather-than-assuming)
   - [13.4 Practical recommendation](#134-practical-recommendation)
+  - [13.5 Open questions](#135-open-questions)
 - [14. Threats to validity](#14-threats-to-validity)
 - [15. Reproduction](#15-reproduction)
 - [16. Conclusion](#16-conclusion)
@@ -1296,6 +1297,26 @@ Four rules that generalise beyond this machine:
    modes silently produce plausible-looking wrong numbers.
 
 ---
+
+
+### 13.5 Open questions
+
+Each of these is a question this study raised but could not answer, listed with the experiment that
+would settle it.
+
+| Question | Why it is open | What would settle it |
+|---|---|---|
+| Where does the 2-bit penalty come from? | We observed 2.4× slower decode but cannot separate draft acceptance, dequant cost and kernel maturity | Fix context and prompt, measure acceptance with each draft depth, swap the draft head between the two builds |
+| Is the megakernel server fixable? | It crashes past ~64 K with repeated prompts and loses ~25 % against the CLI at depth | Rebuild with the checkpoint-parking path disabled and compare; or instrument the host-cache allocator |
+| Does the server/CLI gap exist at matched prompts? | Our CLI test used repeated prose (7.9 tok/cycle), the server used random words (~3) | Run identical prompts through both paths at 32 K and 64 K |
+| Is 270 W the optimum on other GPUs? | Power curves are shaped by voltage/frequency tables specific to SM 8.6 | Repeat the sweep on sm_89 and sm_120; the knee should move |
+| Does speculation beat batching for multiple users? | Speculative decoding is a batch-1 optimisation and competes with continuous batching | Measure throughput at 1, 2, 4 concurrent sequences with speculation on and off |
+| Does the accuracy gap survive a fair comparison? | Generation, abliteration and quantisation all differ between our two models | Same generation, same quant, one abliterated and one not |
+| Does context depth hurt harder tasks? | Our padding test used irrelevant text and easy questions | Needle-in-a-haystack and multi-hop retrieval at 8 K / 64 K / 256 K |
+| Would W4A4 or FP8 beat Q4_K_M? | We tested ggml formats only; NVFP4 and FP8 have their own kernels | Same model converted to each, same harness |
+
+The last is the most promising: the literature on hybrid quantisation suggests the recurrent half of
+these models tolerates 4-bit activations unusually well [6], and none of our formats exercise that path.
 
 ## 14. Threats to validity
 
