@@ -21,6 +21,7 @@
 > | 2-bit vs 4-bit | **slower** at every depth — 58 vs 94 tok/s at 262 K |
 > | Prefix caching, 256 K | a follow-up turn costs **0.22 s** instead of 198 s (**904×**) |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
+> | Long context and accuracy | 64 K of padding changed nothing: 26/30 vs 24/30, **no task regressed** |
 > | What dominates the bill | **idle draw + lit monitors**, 60–70 % of a 24/7 machine |
 
 ## Contents
@@ -68,6 +69,7 @@
   - [9.3 Results](#93-results)
   - [9.4 Interpretation, with confounds stated](#94-interpretation-with-confounds-stated)
   - [9.5 Why it still matters operationally](#95-why-it-still-matters-operationally)
+  - [9.6 Does filling the context hurt accuracy?](#96-does-filling-the-context-hurt-accuracy)
 - [10. The power/performance frontier](#10-the-powerperformance-frontier)
   - [10.1 Protocol](#101-protocol)
   - [10.2 Results [M]](#102-results-m)
@@ -276,8 +278,8 @@ limit to expose the frontier rather than a single operating point.
 
 **Positioning.** Public serving benchmarks overwhelmingly report tokens/s at a default power limit
 on datacentre accelerators, and rarely report the power/performance frontier on consumer hardware.
-The value of this study is not a new algorithm but a *validated* measurement: **550 logged rows across
-nine result files** — timed context sweeps, power sweeps and graded answers — an explicit
+The value of this study is not a new algorithm but a *validated* measurement: **580 logged rows across
+ten result files** — timed context sweeps, power sweeps and graded answers — an explicit
 draw-validation filter that rejects 15.7 % of attempted power points, and documented failure modes.
 We treat the methodology (§4) as a contribution of equal weight to the results.
 
@@ -918,6 +920,37 @@ independent of generation or abliteration, or behaviour on longer, multi-turn or
 Thirty single-turn tasks with computed answers are a probe, not a benchmark suite.
 
 ---
+
+
+### 9.6 Does filling the context hurt accuracy?
+
+A common worry about long-context serving is that burying a question under thousands of irrelevant
+tokens degrades the answer. We tested it directly: the same thirty auto-graded tasks, each preceded
+by a fixed block of unrelated ledger prose, at two depths.
+
+| Padding depth | Correct | Missed | Tasks |
+|---|---|---|---|
+| 1 K | 24/30 | 6 | `code1`, `code3`, `count0`, `count4`, `count6`, `count9` |
+| **64 K** | **26/30** | 4 | `code1`, `count0`, `count6`, `count9` |
+
+**Nothing got worse.** Two tasks that failed at 1 K (`code3`, `count4`) passed at 64 K; no task went
+the other way. Paired comparison gives two discordant pairs in one direction and none in the other.
+
+The honest reading is that **on this task set, 64 K of irrelevant context costs nothing but
+throughput.** The model's arithmetic and code-output accuracy is unchanged, and its character-counting
+weakness (§9.4) is unchanged in character — still the same category, still roughly the same rate.
+
+Three limits on that claim, stated plainly:
+
+1. **The padding is irrelevant, not adversarial.** These are not needle-in-a-haystack retrievals or
+   questions whose answer depends on a fact buried at a specific position. A task that requires
+   attending to one token in 64 K is a different and harder test, and we did not run it.
+2. **Thirty tasks cannot detect a small effect.** With 30 paired observations, a change of two or
+   three items is inside the noise band.
+3. **Only one model.** This is the 35B-A3B at Q3_K_M; the 27B was not tested at depth.
+
+What it does establish is that the *dominant* cost of long context on this hardware is the throughput
+curve of §8.1 and the prefill time of §8.5 — not accuracy collapse.
 
 ## 10. The power/performance frontier
 
