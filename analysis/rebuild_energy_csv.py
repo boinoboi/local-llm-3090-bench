@@ -6,7 +6,7 @@ draft acceptance, tokens per cycle, mean board power inside the decode window, a
 """
 import csv, glob, os, re, statistics, collections
 
-OUT = os.path.expanduser("~/bench/results_energy.csv")
+OUT = os.path.expanduser("~/bench/data/data/results_energy.csv")
 RE = re.compile(
     r"decode (\d+) tok in ([0-9.]+) s = ([0-9.]+) tok/s \| cycles (\d+), "
     r"accepted (\d+)/(\d+) drafts \(([0-9.]+)%\), ([0-9.]+) tok/cycle")

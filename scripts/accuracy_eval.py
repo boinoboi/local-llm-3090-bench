@@ -116,7 +116,7 @@ def main():
     port = int(sys.argv[1])
     label = sys.argv[2]
     engine = sys.argv[3] if len(sys.argv) > 3 else "llama.cpp"
-    out = os.path.expanduser(f"~/bench/results_accuracy.csv")
+    out = os.path.expanduser("~/bench/data/results_accuracy.csv")
     label = label + ("" if os.environ.get("ACC_SEED") in (None, "20261118") else f"@s{os.environ.get('ACC_SEED')}")
     maxtok = int(os.environ.get("ACC_MAXTOK", "700"))
     thinking_off = os.environ.get("ACC_THINKING_OFF", "1") == "1"

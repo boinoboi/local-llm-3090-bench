@@ -13,105 +13,16 @@
 > |---|---|
 > | Fastest configuration measured | **250.6 tok/s** — 35B-A3B Q3_K_M + MTP, `llama.cpp`, 8 K, 230 W |
 > | Fastest single-stream 27B | **152.8 tok/s** — Q4_K_M megakernel at 385 W; 141.2 at 270 W |
-> | Most economical setting | **270 W**, $0.114 per million output tokens |
-> | Best speed per watt | **521.8 tok/s per kW** at 270 W, replicated on a second workload |
+> | Most economical setting | **270 W**, **$0.11–0.17** per million output tokens (workload-dependent, §11.2) |
+> | Best speed per watt | **270 W** — 521.8 tok/s per kW (peak-draw basis), also the minimum J/token on integrated-energy sampling |
 > | Full native context on 24 GB | **262,144 tokens** at 23,855 MiB (preset F), 5-bit KV + 8-bit recency window |
 > | Fastest at 262 K | **94.0 tok/s** — 35B-A3B Q3_K_M, four-run median |
 > | Engine gain, same model | **~1.5×** (indicative) over `llama.cpp` at equal power, at ~2× the weight precision |
 > | 2-bit vs 4-bit | **slower** at every depth — 58 vs 94 tok/s at 262 K |
 > | Prefix caching, 256 K | a follow-up turn costs **0.22 s** instead of 198 s (**904×**) |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
-> | Long context and accuracy | 64 K of padding changed nothing: 26/30 vs 24/30, **no task regressed** |
+> | Long context and accuracy | 64 K of padding changed nothing: 27/30 vs 26/30, **no task regressed** |
 > | What dominates the bill | **idle draw + lit monitors**, 60–70 % of a 24/7 machine |
-
-## Contents
-
-- [Abstract](#abstract)
-- [1. Introduction](#1-introduction)
-  - [1.1 Contributions](#11-contributions)
-- [2. Background](#2-background)
-  - [2.1 Hybrid attention and Gated DeltaNet](#21-hybrid-attention-and-gated-deltanet)
-  - [2.2 Speculative decoding and Multi-Token Prediction](#22-speculative-decoding-and-multi-token-prediction)
-  - [2.3 KV-cache quantisation](#23-kv-cache-quantisation)
-  - [2.4 Related work and positioning](#24-related-work-and-positioning)
-- [3. Hardware and software environment](#3-hardware-and-software-environment)
-  - [3.1 Software versions](#31-software-versions)
-- [4. Methodology](#4-methodology)
-  - [4.1 Measurement protocol](#41-measurement-protocol)
-  - [4.2 Prompt-length calibration](#42-prompt-length-calibration)
-  - [4.3 Power-limit protocol and its failure mode](#43-power-limit-protocol-and-its-failure-mode)
-  - [4.4 Control for speculation](#44-control-for-speculation)
-  - [4.5 Repetition and variance](#45-repetition-and-variance)
-  - [4.6 Statistical treatment](#46-statistical-treatment)
-- [5. Model selection: architecture forensics](#5-model-selection-architecture-forensics)
-  - [5.1 Layer census [M]](#51-layer-census-m)
-  - [5.2 Tensor-level verification [M]](#52-tensor-level-verification-m)
-  - [5.3 Uncensoring audit [R]](#53-uncensoring-audit-r)
-  - [5.4 Quantisation and ablation interact](#54-quantisation-and-ablation-interact)
-- [6. The KV-cache budget](#6-the-kv-cache-budget)
-  - [6.1 Correcting the naive estimate [D]](#61-correcting-the-naive-estimate-d)
-  - [6.2 Measured VRAM at full context [M]](#62-measured-vram-at-full-context-m)
-  - [6.3 Asymmetric KV: why K needs more bits than V](#63-asymmetric-kv-why-k-needs-more-bits-than-v)
-- [7. Engine comparison](#7-engine-comparison)
-  - [7.1 An equal-context, equal-power comparison [M]](#71-an-equal-context-equal-power-comparison-m)
-  - [7.2 Speculation backends on identical weights [M]](#72-speculation-backends-on-identical-weights-m)
-  - [7.3 Where the speed comes from](#73-where-the-speed-comes-from)
-- [8. Context scaling](#8-context-scaling)
-  - [8.1 llama.cpp, 35B-A3B hybrid MoE [M]](#81-llamacpp-35b-a3b-hybrid-moe-m)
-  - [8.2 The 2-bit model is slower than the 4-bit model, at every depth](#82-the-2-bit-model-is-slower-than-the-4-bit-model-at-every-depth)
-  - [8.3 Observations](#83-observations)
-  - [8.4 megakernel context scaling — and why one run is not enough [M]](#84-megakernel-context-scaling--and-why-one-run-is-not-enough-m)
-  - [8.5 What prefix caching is actually worth [M]](#85-what-prefix-caching-is-actually-worth-m)
-- [9. Quality: is the larger model actually smarter?](#9-quality-is-the-larger-model-actually-smarter)
-  - [9.1 Motivation](#91-motivation)
-  - [9.2 Design](#92-design)
-  - [9.3 Results](#93-results)
-  - [9.4 Interpretation, with confounds stated](#94-interpretation-with-confounds-stated)
-  - [9.5 Why it still matters operationally](#95-why-it-still-matters-operationally)
-  - [9.6 Does filling the context hurt accuracy?](#96-does-filling-the-context-hurt-accuracy)
-- [10. The power/performance frontier](#10-the-powerperformance-frontier)
-  - [10.1 Protocol](#101-protocol)
-  - [10.2 Results [M]](#102-results-m)
-  - [10.3 Marginal return](#103-marginal-return)
-  - [10.4 Why efficiency and speed peak at different wattages](#104-why-efficiency-and-speed-peak-at-different-wattages)
-  - [10.5 Robustness: does the optimum move with the workload?](#105-robustness-does-the-optimum-move-with-the-workload)
-  - [10.6 Recommended operating points](#106-recommended-operating-points)
-- [11. Economics](#11-economics)
-  - [11.1 Tariff model [R]](#111-tariff-model-r)
-  - [11.2 Cost per million output tokens [D]](#112-cost-per-million-output-tokens-d)
-  - [11.3 Idle power dominates a 24/7 machine [M]](#113-idle-power-dominates-a-247-machine-m)
-- [12. Negative results and failure modes](#12-negative-results-and-failure-modes)
-  - [12.1 `nvidia-smi -pl` fails silently (17 of 108 runs)](#121-nvidia-smi--pl-fails-silently-17-of-108-runs)
-  - [12.2 A purpose-built engine segfaults on an unsupported KV dtype](#122-a-purpose-built-engine-segfaults-on-an-unsupported-kv-dtype)
-  - [12.3 An engine that cannot fit the requested context](#123-an-engine-that-cannot-fit-the-requested-context)
-  - [12.4 A released quant silently loses Multi-Token Prediction](#124-a-released-quant-silently-loses-multi-token-prediction)
-  - [12.5 Engine crash on repeated identical prompts](#125-engine-crash-on-repeated-identical-prompts)
-  - [12.6 Tokenizer miscalibration invalidated a whole sweep](#126-tokenizer-miscalibration-invalidated-a-whole-sweep)
-  - [12.7 CUDA device selection](#127-cuda-device-selection)
-- [13. Discussion](#13-discussion)
-  - [13.1 What actually determines tokens per second](#131-what-actually-determines-tokens-per-second)
-  - [13.2 Why 2-bit was the wrong instinct](#132-why-2-bit-was-the-wrong-instinct)
-  - [13.3 The value of measuring rather than assuming](#133-the-value-of-measuring-rather-than-assuming)
-  - [13.4 Practical recommendation](#134-practical-recommendation)
-  - [13.5 Open questions](#135-open-questions)
-- [14. Threats to validity](#14-threats-to-validity)
-- [15. Reproduction](#15-reproduction)
-- [16. Conclusion](#16-conclusion)
-- [References](#references)
-- [Appendix A — Representative log excerpts](#appendix-a--representative-log-excerpts)
-- [Appendix B — Artefact inventory](#appendix-b--artefact-inventory)
-- [Appendix C — Figures](#appendix-c--figures)
-  - [Figure 1 — Speed, efficiency and cost versus power limit](#figure-1--speed-efficiency-and-cost-versus-power-limit)
-  - [Figure 2 — Why the two curves peak at different wattages](#figure-2--why-the-two-curves-peak-at-different-wattages)
-  - [Figure 3 — Speculation backends across context depth](#figure-3--speculation-backends-across-context-depth)
-  - [Figure 4 — Auto-graded accuracy by task family](#figure-4--auto-graded-accuracy-by-task-family)
-  - [Figure 5 — The efficiency optimum replicates across workloads](#figure-5--the-efficiency-optimum-replicates-across-workloads)
-  - [Figure 6 — Quantisation: fewer bits per token, fewer tokens per second](#figure-6--quantisation-fewer-bits-per-token-fewer-tokens-per-second)
-- [Appendix D — Glossary](#appendix-d--glossary)
-- [Appendix E — Configuration manifest](#appendix-e--configuration-manifest)
-  - [Models](#models)
-  - [Serve commands](#serve-commands)
-  - [Environment invariants worth recording](#environment-invariants-worth-recording)
 
 ## Abstract
 
@@ -127,7 +38,7 @@ Multi-Token Prediction (MTP) speculative decoding, and a purpose-built single-ke
 
 Holding the model class fixed, at 8,192-token context the megakernel delivers **152.3 tokens/s at
 385 W** and **109.4 tokens/s at 230 W**, against `llama.cpp`'s **71.1 tokens/s at 230 W**. That is a
-**1.5×** advantage at equal power and **2.1×** at the engine's upper operating point, carrying roughly
+**~1.5×** advantage at equal power and **~2.1×** at the engine's upper operating point (both indicative), carrying roughly
 **twice the weight precision** (Q4_K_M versus IQ2_XS) and no accuracy penalty seen in our probe (prompt family, draft count and reasoning mode differ between the two stacks, so the ratio is indicative). Across all
 configurations the fastest single stream is a 35B-A3B on `llama.cpp`: **250.6 tokens/s at 8 K**,
 sustaining **94.0 tokens/s with the full 262,144-token window resident** — a window that fits in
@@ -135,8 +46,8 @@ sustaining **94.0 tokens/s with the full 262,144-token window resident** — a w
 
 The headline finding is that **the fastest operating point is not the most efficient one**. Decode
 throughput rises monotonically to 152.8 tokens/s at 385 W, but energy efficiency peaks at **270 W
-(141.2 tokens/s, 521.8 tokens/s per kW)** and costs 31 % more per token by the time the card reaches
-its limit: the last 115 W buy 8 % more speed for 42 % more power. That peak reproduces at 270 W on a
+(141.2 tokens/s)** and costs 29–31 % more per token by the time the card reaches
+its limit (integrated energy / peak-draw basis): the last 115 W buy 8 % more speed for 42 % more power. That peak reproduces at 270 W on a
 second, independent prompt workload, across **115 validated measurements** at eleven power limits.
 
 Compression was not free either. A 2.3 bpw build of the same 35B was **30 % slower at 32 K and 54 %
@@ -188,19 +99,11 @@ measurement pitfalls that produced them.
 
 ### 1.1 Contributions
 
-- A **controlled engine comparison** on identical hardware showing a 1.5× decode advantage at
-  equal power, and 2.1× at the engine's upper operating point, for a single-kernel CUDA engine over
-  `llama.cpp` — at roughly twice the weight precision and no measured accuracy penalty.
-- **Context-scaling curves** from 1 K to 229,978 tokens for five model/engine configurations,
-  including cold-prefill and prefix-cached regimes.
-- A **KV-cache budget analysis** demonstrating full 262,144-token context on a 24 GB card at
-  23,855 MiB peak (preset F), using 5-bit K and V with an 8-bit recency window.
-- The **power/performance frontier** of the 3090 between 230 W and 385 W measured at 6-10
-  repetitions per point, with a validity filter that rejects runs where the power limit silently
-  failed to apply.
-- An **economic model** converting joules per token into local electricity cost, and a comparison
-  against hosted API pricing.
-- A catalogue of **seven reproducible failure modes** that invalidate naive benchmarking.
+- A controlled-as-possible engine comparison (indicative ~1.5× at equal power; §7).
+- Context-scaling curves from 1 K to 229,978 tokens, cold and prefix-cached (§8).
+- A KV-cache budget showing 262,144 tokens in 24 GB (§6).
+- A power/performance frontier with draw validation (§10) and an economic model (§11).
+- Seven reproducible failure modes (§12).
 
 ---
 
@@ -251,37 +154,12 @@ recency window. The engine we study exposes exactly this as environment variable
 
 ### 2.4 Related work and positioning
 
-**Speculative decoding.** Leviathan et al. [7] and Chen et al. [8] independently established that
-drafting several tokens and verifying them in one target pass is lossless and yields 2–3× speedups.
-Subsequent work replaced the external draft model with trained heads: Medusa's multiple decoding
-heads, EAGLE's feature-level drafting, and the Multi-Token Prediction blocks now shipped inside
-Qwen- and DeepSeek-class checkpoints [4]. Our study does not propose a new drafter; it measures
-three existing ones (native MTP, block-diffusion DFlash2, and n-gram lookup) on identical weights
-and finds them trading places by context with no consistent winner — while MTP is the only one available in stock `llama.cpp`.
-
-**Hybrid attention.** Linear-attention formulations [2] and their gated delta-rule successors [1]
-trade unbounded KV growth for a fixed-size recurrent state, and Qwen3-Next established the 3:1
-interleave with full attention that Qwen3.6/3.8 inherit [3]. Because only a quarter of layers cache
-KV, the memory arithmetic that governs long-context serving changes by roughly 4× — a fact that is
-easy to get wrong, and that we initially got wrong by nearly 5× (§6.1).
-
-**KV-cache quantisation.** KIVI [10] and KVQuant [11] established asymmetric, per-channel and
-recency-aware cache compression, and independent work on hybrid 27B models shows the GDN stack is
-comparatively robust to low-bit weights while the cache remains the sensitive part [6]. We did not
-invent a scheme; we measured which of the available presets actually fits 262 K in 24 GB.
-
-**Energy and cost.** Luccioni et al. [17] estimated per-inference energy across model families from
-TDP assumptions, reporting on the order of 10⁻⁴ kWh per inference for small models and 4×10⁻³ kWh
-for a 176B model. Our contribution differs in method: rather than assuming TDP, we sample actual
-board power at 6.7 Hz during every measurement, report joules **per token**, and sweep the power
-limit to expose the frontier rather than a single operating point.
-
-**Positioning.** Public serving benchmarks overwhelmingly report tokens/s at a default power limit
-on datacentre accelerators, and rarely report the power/performance frontier on consumer hardware.
-The value of this study is not a new algorithm but a *validated* measurement: **610 logged rows across
-nine result files** — timed context sweeps, power sweeps and graded answers — an explicit
-draw-validation filter that rejects 15.7 % of attempted power points, and documented failure modes.
-We treat the methodology (§4) as a contribution of equal weight to the results.
+Speculative decoding [7, 8], trained draft heads [4], hybrid linear/full attention [1–3] and KV-cache
+quantisation [10, 11] are all established; this study proposes no new method. It measures them together
+on one machine. Luccioni et al. [17] estimate energy from TDP; we instead sample board power at 6.7 Hz
+and sweep the power limit. The contribution is a *validated* measurement set (610 logged rows across nine
+result files, a draw-validation filter that rejects 15.7 % of attempted power points, documented failure
+modes), and the methodology (§4) counts as much as the results.
 
 ---
 
@@ -556,7 +434,7 @@ Both engines on Qwen3.8-27B-class weights, 8,192-token context, power limit 230 
 | Engine | Weights | Decode @ 8 K | Relative |
 |---|---|---|---|
 | `llama.cpp` + MTP (3 drafts) | IQ2_XS, 8.17 GB | **71.1 tok/s** | 1.00× |
-| megakernel + MTP (7 drafts) | UD-Q4_K_M, 15.43 GB | **109.4 tok/s** | **1.54×** |
+| megakernel + MTP (7 drafts) | UD-Q4_K_M, 15.43 GB | **109.4 tok/s** | **~1.5×** (indicative) |
 
 Both engines respond very differently to the same increase in power. Raising the limit from 230 W to
 270 W moved `llama.cpp` from 71.1 to **75.2 tok/s** (+5.8 %, four runs, same model and prompt family)
@@ -567,9 +445,9 @@ different prompt families, but the asymmetry is unambiguous.*
 
 The megakernel's own scaling, from the power sweep of §10.2, for reference:
 
-| Power limit | megakernel @ 8 K | ÷ the 71.1 baseline |
+| Power limit | megakernel @ 8 K | ÷ the 71.1 baseline (indicative) |
 |---|---|---|
-| 230 W | 109.4 | **1.54×** ← closest comparison (not prompt-matched, see below) |
+| 230 W | 109.4 | **~1.5×** ← closest comparison (not prompt-matched, see below) |
 | 270 W | 141.2 | 1.99× |
 | 330 W | 150.3 | 2.11× |
 | 385 W | 152.3 | 2.14× |
@@ -936,11 +814,23 @@ by a fixed block of unrelated ledger prose, at two depths.
 
 | Padding depth | Correct | Missed | Tasks |
 |---|---|---|---|
-| 1 K | 24/30 | 6 | `code1`, `code3`, `count0`, `count4`, `count6`, `count9` |
-| **64 K** | **26/30** | 4 | `code1`, `count0`, `count6`, `count9` |
+| 1 K | **26/30** | 4 | `count0`, `count4`, `count6`, `count9` |
+| **64 K** | **27/30** | 3 | `count0`, `count6`, `count9` |
 
-**Nothing got worse.** Two tasks that failed at 1 K (`code3`, `count4`) passed at 64 K; no task went
-the other way. Paired comparison gives two discordant pairs in one direction and none in the other (exact McNemar p = 0.5, so this is absence of evidence of harm, not proof of none). Caveat: the 1 K padded baseline (24/30) is below the unpadded 26–27/30 of §9.3, and the `code1`/`code3` misses are unexplained; settings between the two runs may differ.
+**Nothing got worse.** One task that failed at 1 K (`count4`) passed at 64 K; none went the other way.
+Exact McNemar on the single discordant pair gives p = 1.0 — this is absence of evidence of harm, not
+proof of none.
+
+**The probe now matches §9.3's settings.** Output was capped at **1,200 tokens**, the same as the main
+accuracy run, and the 1 K padded baseline therefore lands on **26/30 — identical to §9.3's seed-2026
+result** on the same tasks. The comparison is directly comparable rather than merely internally valid.
+
+An earlier pilot used a 900-token cap and scored 24/30 at 1 K and 26/30 at 64 K. Its two extra misses
+(`code1`, `code3`) were both `<no ANSWER line>` — the truncation failure mode of §9.3 — which is why
+the cap was raised rather than the numbers reported.
+
+All four remaining 1 K misses and all three at 64 K are **character counting**, the same task family
+that produced the 35B's deficit in §9.4. Padding changes neither the count nor the category.
 
 The honest reading is that **on this task set, 64 K of irrelevant context showed no measurable accuracy cost beyond
 throughput.** The model's arithmetic and code-output accuracy is unchanged, and its character-counting
@@ -999,7 +889,28 @@ The same data is plotted as **Figure 1** (speed, efficiency and cost on shared a
 Draft acceptance was **49.9 % at every single level**, confirming the curve is pure clock scaling
 and not a speculation interaction.
 
-**Caveat on the efficiency columns:** tok/s per kW and J/token use the *peak* draw column, which tracks the limit by construction (230 → 232 W … 385 → 385 W). Efficiency here is therefore close to speed ÷ limit, not integrated energy. A recomputation from median draw in `results_power.csv` has not been run; the 270 W optimum should be re-checked against it.
+**Basis of the efficiency columns.** tok/s per kW and J/token above use the *peak* draw column, which tracks the limit by construction (230 → 232 W … 385 → 385 W), so they are close to speed ÷ limit and overstate energy. Median draw over the whole run is no better: it sits at 165–176 W at every limit because the sampling window includes idle gaps between requests, which flattens the curve.
+
+**Integrated check [M].** Energy was therefore re-measured with 10 Hz power sampling restricted to the engine's own decode interval (no idle, no prefill), on a separate and less predictable prompt (`results_energy.csv`):
+
+| Limit | Decode (tok/s) | Mean draw in decode (W) | J/token |
+|---|---|---|---|
+| 230 W | 73.7 | 224.4 | 3.046 |
+| 250 W | 84.9 | 242.9 | 2.861 |
+| **270 W** | 92.1 | 260.3 | **2.830** |
+| 300 W | 92.5 | 287.0 | 3.087 |
+| 330 W | 96.3 | 313.1 | 3.238 |
+| 350 W | 96.5 | 325.4 | 3.330 |
+| 385 W | 99.1 | 361.3 | 3.637 |
+
+*Provenance for `results_energy.csv`:* Qwen3.8-27B at UD-Q4_K_M with 7 MTP drafts, context 8,192,
+the operating-system-scheduler prompt, 512 tokens generated per run, **three runs per level**, board
+power sampled at 10 Hz and restricted to the engine's decode interval. **Draft acceptance was 34.4 %
+and 2.46 tokens/cycle at every level and every run** — greedy output is clock-invariant, so all seven
+points produced identical text and the comparison isolates power rather than content. Within-level
+spread in J/token was 0.1–7.1 % (worst at 350 W, where one run dropped to 71.7 tok/s).
+
+The optimum survives: **270 W is the minimum**, with 250 W within about 1 % of it (inside noise). The 385 W penalty over 270 W is **+28.5 %** on integrated energy versus +31.5 % on the peak-draw table, so the same direction and a slightly smaller size. Absolute J/token is about 48 % higher than the peak-draw table because this prompt decodes at 92 tok/s instead of 141 (lower draft acceptance); the *shape* is what carries over. Note that the 290 W level in the table above is the six valid retests; the original ten runs at 290 W never had the limit applied and were dropped (Appendix A.5).
 
 ### 10.3 Marginal return
 
@@ -1100,20 +1011,24 @@ apparently stable in shape. **Figure 5** plots both curves together.
 MSEDCL LT-I(B) residential, Maharashtra, FY 2026-27 (MERC Case No. 75 of 2025, effective
 1 April 2026) [12]:
 
-| Monthly units | Energy | Wheeling | Effective incl. 16 % duty |
-|---|---|---|---|
-| 0–100 | ₹3.96 | ₹1.60 | **₹5.56** |
-| 101–300 | ₹10.80 | ₹1.60 | **₹12.90** |
-| 301–500 | ₹15.03 | ₹1.60 | **₹20.04** |
-| >500 | ₹17.53 | ₹1.60 | **₹23.00** |
+| Monthly units | Energy | Wheeling | FAC (implied) | Effective = (energy + wheeling + FAC) × 1.16 |
+|---|---|---|---|---|
+| 0–100 | ₹3.96 | ₹1.60 | ₹0.25 | **₹6.74** |
+| 101–300 | ₹10.80 | ₹1.60 | ₹0.50 | **₹14.96** |
+| 301–500 | ₹15.03 | ₹1.60 | ₹0.65 | **₹20.04** |
+| >500 | ₹17.53 | ₹1.60 | ₹0.70 | **₹23.00** |
 
 Electricity duty is 16 % of consumption charges; fuel adjustment charge is slab-dependent and
 ranged ₹0.25–0.70/unit during the study. Fixed charge ₹130/month single-phase (+₹10 inside a
 municipal corporation).
 
-At USD/INR **93.44** (RBI, 18 Nov 2026), the marginal unit of ₹20.04 is **$0.2145/kWh**.
+At USD/INR **93.44** (interbank close, 18 Nov 2026; the FBIL/RBI reference rate was 93.3558, a 0.09 % difference that changes nothing here), the marginal unit of ₹20.04 is **$0.2145/kWh**.
 
 ### 11.2 Cost per million output tokens [D]
+
+Two bases are given because they bracket the answer. **Peak-draw basis** (power-sweep workload, 141 tok/s at 270 W) is the optimistic case; **integrated basis** (10 Hz sampling during decode, less predictable prompt, 92 tok/s at 270 W) is the conservative one. Draft acceptance, not hardware, drives most of the gap.
+
+*Peak-draw basis:*
 
 | Limit | J/token | kWh per 1 M | ₹ per 1 M | **$ per 1 M** |
 |---|---|---|---|---|
@@ -1123,11 +1038,22 @@ At USD/INR **93.44** (RBI, 18 Nov 2026), the marginal unit of ₹20.04 is **$0.2
 | 330 W | 2.195 | 0.610 | ₹12.22 | $0.131 |
 | 385 W | 2.519 | 0.700 | ₹14.03 | **$0.150** |
 
-Going from 270 W to 385 W raises cost per token by **31 %** for **8 %** more throughput.
+*Integrated-energy basis:*
+
+| Limit | J/token | kWh per 1 M | ₹ per 1 M | **$ per 1 M** |
+|---|---|---|---|---|
+| 230 W | 3.046 | 0.846 | ₹16.96 | $0.181 |
+| 250 W | 2.861 | 0.795 | ₹15.93 | $0.170 |
+| **270 W** | **2.830** | 0.786 | ₹15.75 | **$0.169** |
+| 300 W | 3.087 | 0.858 | ₹17.18 | $0.184 |
+| 330 W | 3.238 | 0.899 | ₹18.02 | $0.193 |
+| 350 W | 3.330 | 0.925 | ₹18.54 | $0.198 |
+| 385 W | 3.637 | 1.010 | ₹20.25 | $0.217 |
+
+Going from 270 W to 385 W raises cost per token by **29–31 %** (integrated / peak-draw) for **8 %** more throughput. **Headline: $0.11–0.17 per million output tokens at 270 W**, depending on how predictable the prompt is.
 
 For reference, hosted APIs in this class charge on the order of $0.28 per million input tokens and
-around $1.10 per million output tokens [R]. **Electricity alone is roughly 8× cheaper on output
-and 11× on input**. This excludes hardware amortisation and idle power, which §11.3 shows dominate the real bill, so it is not a like-for-like total-cost comparison.
+around $1.10 per million output tokens [R]. **Electricity alone is roughly 6–10× cheaper on output**. This excludes hardware amortisation and idle power, which §11.3 shows dominate the real bill, so it is not a like-for-like total-cost comparison.
 
 ### 11.3 Idle power dominates a 24/7 machine [M]
 
@@ -1286,7 +1212,7 @@ backed by a measurement in this document.
 | Maximum tokens/s, short context | 35B-A3B MoE, Q3_K_M, `llama.cpp`, MTP | 250.6 tok/s at 8 K (§8.1) |
 | Maximum tokens/s, full 262 K context | same, with q4_0 KV | 94.0 tok/s at 262 K, 21.2 GB (§8.1) |
 | Best accuracy per token | 27B at Q4_K_M, megakernel | IQ2_XS 27B scored 60/60; the Q4_K_M megakernel run scored 30/30 with thinking on (not directly comparable) (§9) |
-| Lowest cost per token | 270 W on either model | 521.8 tok/s per kW, $0.114/M (§10) |
+| Lowest cost per token | 270 W on either model | min J/token at 270 W; $0.11–0.17 per M output tokens (§10, §11.2) |
 | Lowest latency per watt | 330 W | 98.4 % of peak speed at 86 % of peak power (§10.2) |
 | Longest context on 24 GB | 5-bit K/V with an 8-bit recency window | 262,144 tokens at 23,855 MiB (§6.3) |
 | Fastest to configure | stock `llama.cpp` + `--spec-type draft-mtp` | no custom build; 226–250 tok/s on the 35B |
@@ -1392,35 +1318,15 @@ All raw data, scripts and plots: https://github.com/boinoboi/local-llm-3090-benc
 
 ## 16. Conclusion
 
-On one consumer graphics card, the fastest single stream measured was **250.6 tokens per second** —
-a 35-billion-parameter mixture-of-experts activating 3 billion, at 3.9 bits per weight — and the same
-configuration sustained **94.0 tokens per second with the full 262,144-token window resident**. At the
-most economical power setting for a 24/7 machine, 270 W, a 27-billion-parameter hybrid model generated
-**141 tokens per second** at 8 K context for **$0.114 per million output tokens**.
+On one RTX 3090, the fastest single stream was **250.6 tok/s** (35B-A3B MoE, Q3_K_M, MTP, 8 K), holding
+**94.0 tok/s with the full 262,144-token window resident**. The most economical 24/7 setting is **270 W**:
+141 tok/s on the 27B at **$0.11–0.17 per million output tokens** (prompt-dependent), against 385 W which costs
+29–31 % more per token for 8 % more speed. Full context fits in 24 GB only with a 5-bit KV cache plus an 8-bit recency window.
+2-bit weights were slower, not faster. Idle draw and lit monitors cost more than all the inference.
 
-Those numbers are the result. Everything else in this document is the work required to justify them:
-
-- The 27B is not a dense transformer; **48 of its 64 layers keep no KV cache**, which makes long
-  context affordable.
-- At equal power, a fused single-kernel engine is **~1.5× faster** (indicative; prompts and draft settings differ) than `llama.cpp` at roughly
-  twice the weight precision — and at 385 W, **2.14×**.
-- Full **262,144-token context fits in 24 GB** only because the KV cache is stored at 5 bits with an
-  8-bit recency window. At 8 bits the cache alone would be ~9.8 GB, pushing the working set past
-  24 GiB; at 16 bits it is not close.
-- The **most efficient operating point is 270 W, not 385 W**. Speed rises monotonically; efficiency
-  peaks and then falls, because power scales super-linearly with clock. The last 115 W buy 8 % more
-  speed for 42 % more power — and the peak reproduces on a second workload.
-- **Fewer bits is not faster.** A 2.3 bpw build of the same model was 30 % slower at 32 K and 54 %
-  slower at 128 K than its 3.9 bpw sibling. Compression is not free; it moves cost into the kernels.
-- The 27B answered **60 of 60** auto-graded tasks across two seeds; the 35B-A3B answered **53 of 60**
-  (z = 2.73, p = 0.0064), with the whole deficit in one task family. The larger MoE is 1.6× faster
-  at 8 K, not obviously smarter.
-- And on a machine that runs 24/7, **idle draw and lit monitors cost more than all the inference**.
-
-The broader lesson is that local inference has become a *systems* problem where measurement beats
-intuition. Every one of our four initial assumptions was wrong, and each was corrected by reading a
-config file, a tensor table, or a log line. The numbers are cheap to obtain; knowing which numbers
-to trust is the actual work.
+The lesson is that local inference is a systems problem where measurement beats intuition: each of our
+initial assumptions was corrected by reading a config file, a tensor table or a log line. The numbers are
+cheap to obtain; knowing which to trust is the work.
 
 ---
 
@@ -1537,6 +1443,9 @@ peak draw 230 W despite a requested limit of 290 W
 | `results_llama.csv` | 87 rows: `llama.cpp` context sweeps, 6 configurations |
 | `results_mk.csv` | 16 rows: megakernel context sweeps |
 | `results_power.csv` | 91 valid rows of 108 attempted, with `valid` and `draw_W_peak` |
+| `results_energy.csv` | 21 rows: integrated decode-window energy, 7 limits × 3 runs, with acceptance and spread |
+| `energy_sweep.py` | 10 Hz power sampling restricted to the engine's decode interval |
+| `rebuild_energy_csv.py` | re-derives the energy CSV from engine logs, including draft acceptance |
 | `results_accuracy.csv` | 120 graded answers across 4 model configurations |
 | `results_27b_spec.csv` | 46 rows: 27B speculation ladder, 1 K–262 K |
 | `accuracy_eval.py` | auto-graded probe with programmatically computed ground truth |

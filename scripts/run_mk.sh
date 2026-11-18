@@ -34,7 +34,7 @@ for i in $(seq 1 1800); do
 done
 sleep 3
 
-python3 ~/bench/measure.py --port "$PORT" --label "$LABEL" --engine megakernel \
+python3 ~/bench/scripts/measure.py --port "$PORT" --label "$LABEL" --engine megakernel \
   --api chat --quant "UD-Q4_K_M" --spec "mtp${DRAFT}$([ "$KVMODE" != q8 ] && echo "-$KVMODE")" \
   --ctx "$CTX" --gpu 0 --notes "kv=$KVMODE" --max-prompt $((CTXN - 512))
 

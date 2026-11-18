@@ -3,7 +3,7 @@
 import csv, os, statistics, collections
 
 B = os.path.expanduser("~/bench")
-rows = list(csv.DictReader(open(f"{B}/results_llama.csv")))
+rows = list(csv.DictReader(open(f"{B}/data/results_llama.csv")))
 
 want = [m for m in {r["model"] for r in rows} if m.endswith("_rep3")]
 print("replicated models:", want)

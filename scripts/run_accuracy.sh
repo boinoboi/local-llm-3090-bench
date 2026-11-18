@@ -24,7 +24,7 @@ for i in $(seq 1 600); do
 done
 sleep 2
 
-python3 ~/bench/accuracy_eval.py "$PORT" "$LABEL" llama.cpp
+python3 ~/bench/scripts/accuracy_eval.py "$PORT" "$LABEL" llama.cpp
 
 kill -INT "$SRV" 2>/dev/null || true
 wait "$SRV" 2>/dev/null || true

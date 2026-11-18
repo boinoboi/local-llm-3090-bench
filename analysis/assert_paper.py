@@ -20,7 +20,7 @@ def rows(name):
 
 
 print("== replicated 35B series (§8.1) ==")
-rep = rows("results_llama_rep3.csv")
+rep = rows("data/results_llama_rep3.csv")
 by = collections.defaultdict(lambda: collections.defaultdict(list))
 for r in rep:
     by[r["model"]][int(r["ctx_target"])].append(float(r["decode_tok_s"]))
@@ -34,7 +34,7 @@ check("Q2_K 256 K", statistics.median(by[q2][262144]), 58.3)
 check("128 K ratio Q3/Q2", statistics.median(by[q3][131072]) / statistics.median(by[q2][131072]), 2.2, 0.02)
 
 print("== power sweep (§10.2) ==")
-pw = [r for r in rows("results_power.csv") if r.get("valid") == "yes" and r.get("workload") == "code"]
+pw = [r for r in rows("data/results_power.csv") if r.get("valid") == "yes" and r.get("workload") == "code"]
 pb = collections.defaultdict(list)
 for r in pw:
     pb[int(float(r["PL_W"]))].append(r)
@@ -50,7 +50,7 @@ usd = j270 * 1e6 / 3.6e6 * 20.04 / 93.44
 check("USD per 1M tokens at 270 W", usd, 0.114, 0.02)
 
 print("== prose replication (§10.5) ==")
-pr = [r for r in rows("results_power.csv") if r.get("valid") == "yes" and r.get("workload") == "prose"]
+pr = [r for r in rows("data/results_power.csv") if r.get("valid") == "yes" and r.get("workload") == "prose"]
 pp = collections.defaultdict(list)
 for r in pr:
     pp[int(float(r["PL_W"]))].append(r)
@@ -59,7 +59,7 @@ eff = {pl: statistics.median(float(x["decode_tok_s"]) for x in v) /
 check("prose peak efficiency is at 270 W", float(max(eff, key=eff.get)), 270.0, 0)
 
 print("== accuracy (§9.3) ==")
-acc = rows("results_accuracy.csv")
+acc = rows("data/results_accuracy.csv")
 tot = collections.Counter()
 for r in acc:
     if r["model"].startswith("27B_Turbo"):
@@ -86,7 +86,7 @@ check("35B-A3B KV at 262 K (GB)", 2 * 10 * 2 * 256 * 2 * 262144 / 1e9, 5.37, 0.0
 print("== Opus review items ==")
 
 # (1) pooled two-proportion p-value
-acc2 = rows("results_accuracy.csv")
+acc2 = rows("data/results_accuracy.csv")
 tot2 = collections.Counter()
 for r in acc2:
     if r["model"].startswith("27B_Turbo"):
@@ -102,7 +102,7 @@ pval2 = 2 * (1 - 0.5 * (1 + math.erf(abs(z2) / math.sqrt(2))))
 check("pooled p-value", pval2, 0.0064, 0.02)
 
 # (2) integrated energy at 270 W
-en = rows("results_energy.csv")
+en = rows("data/results_energy.csv")
 e270 = [float(r["J_per_token"]) for r in en if int(float(r["PL_W"])) == 270]
 check("J/token at 270 W (integrated)", statistics.median(e270), 2.830, 0.01)
 check("energy runs at 270 W", len(e270), 3, 0)
@@ -114,7 +114,7 @@ usd_int = kwh * 20.04 / 93.44
 check("USD per 1M (integrated, 270 W)", usd_int, 0.169, 0.02)
 
 # (4) six valid 290 W retests
-pw2 = [r for r in rows("results_power.csv")
+pw2 = [r for r in rows("data/results_power.csv")
        if r.get("valid") == "yes" and r.get("workload") == "code"
        and int(float(r["PL_W"])) == 290]
 check("valid 290 W rows", len(pw2), 6, 0)
@@ -130,7 +130,7 @@ check("worst within-level J/token spread < 8 %", worst * 100, 7.0, 1.0)
 
 
 # (6) §9.6 padded-probe counts at max_tokens = 1200
-lc = [r for r in rows("results_longctx.csv") if float(r.get("ctx_target", 0) or 0) in (1024, 65536)]
+lc = [r for r in rows("data/results_longctx.csv") if float(r.get("ctx_target", 0) or 0) in (1024, 65536)]
 lc1200 = [r for r in lc if r.get("model", "").find("longctx") >= 0]
 by_d = collections.defaultdict(int)
 for r in lc1200:

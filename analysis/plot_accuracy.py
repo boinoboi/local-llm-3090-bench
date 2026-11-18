@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 HOME = os.path.expanduser("~")
-rows = list(csv.DictReader(open(f"{HOME}/bench/results_accuracy.csv")))
+rows = list(csv.DictReader(open(f"{HOME}/bench/data/results_accuracy.csv")))
 
 pick = {
     "27B_Turbo_IQ2XS": "27B  IQ2_XS",

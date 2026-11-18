@@ -78,7 +78,7 @@ def parse(path):
 
 
 def main():
-    out = os.path.expanduser("~/bench/results_mk.csv")
+    out = os.path.expanduser("~/bench/data/results_mk.csv")
     rows = []
     for p in sorted(glob.glob(os.path.expanduser("~/bench/mk_*.log"))):
         try:

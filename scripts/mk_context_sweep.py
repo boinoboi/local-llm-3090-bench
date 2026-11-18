@@ -9,7 +9,7 @@ import urllib.request
 
 MK = os.path.expanduser("~/src/megakernel")
 MODEL = os.path.expanduser("~/models/qwen3.8/megakernel/Qwen3.8-27B-UD-Q4_K_M.gguf")
-OUT = os.path.expanduser("~/bench/results_mk_context.csv")
+OUT = os.path.expanduser("~/bench/data/results_mk_context.csv")
 PORT = 8977
 CTXS = [1024, 8192, 32768, 65536, 131072]
 REPS = 3

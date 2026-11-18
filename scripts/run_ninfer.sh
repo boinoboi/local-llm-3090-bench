@@ -24,7 +24,7 @@ for i in $(seq 1 1800); do
 done
 sleep 3
 
-python3 ~/bench/measure.py --port "$PORT" --label "$LABEL" --engine ninfer \
+python3 ~/bench/scripts/measure.py --port "$PORT" --label "$LABEL" --engine ninfer \
   --api chat --quant "${QUANT:-IQ3_S}" --spec "$SPEC" --ctx "$CTX" --gpu 0 \
   --notes "$EXTRA" --max-prompt $((MAXCTX - 256))
 

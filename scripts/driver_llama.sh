@@ -2,7 +2,7 @@
 # Full llama.cpp matrix. Sequential on purpose: one GPU, one measurement at a time.
 set -uo pipefail
 cd ~/bench
-rm -f results_llama.csv
+rm -f data/results_llama.csv
 R=./run_llama.sh
 M36=~/models/qwen3.6
 M38=~/models/qwen3.8
@@ -24,5 +24,5 @@ run "27B_HauhauCS_Q2KP_mtp"    "$M38/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-
 run "MiMo9B_heretic_IQ2M_nospec" "$MM/MiMo-V2.6-Distill-Qwen-9B-heretic.i1-IQ2_M.gguf" "none" "" "IQ2_M"
 run "MiMo9B_heretic_IQ2M_ngram"  "$MM/MiMo-V2.6-Distill-Qwen-9B-heretic.i1-IQ2_M.gguf" "ngram-simple" "" "IQ2_M"
 
-cp results.csv results_llama.csv
+cp data/results.csv data/results_llama.csv
 echo "ALL DONE"

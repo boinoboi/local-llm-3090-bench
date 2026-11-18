@@ -6,7 +6,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 HOME = os.path.expanduser("~")
-rows = [r for r in csv.DictReader(open(f"{HOME}/bench/results_power.csv"))
+rows = [r for r in csv.DictReader(open(f"{HOME}/bench/data/results_power.csv"))
         if r.get("valid", "yes") == "yes"]
 by = collections.defaultdict(list)
 for r in rows:

@@ -3,7 +3,7 @@
 import csv, os, sys
 from collections import defaultdict
 
-CSV = os.path.expanduser("~/bench/results.csv")
+CSV = os.path.expanduser("~/bench/data/results.csv")
 OUT = os.path.expanduser("~/bench/REPORT.md")
 
 

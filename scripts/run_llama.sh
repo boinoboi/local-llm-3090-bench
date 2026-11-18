@@ -23,7 +23,7 @@ for i in $(seq 1 1800); do
 done
 sleep 3
 
-python3 ~/bench/measure.py --port "$PORT" --label "$LABEL" --engine llama.cpp \
+python3 ~/bench/scripts/measure.py --port "$PORT" --label "$LABEL" --engine llama.cpp \
   --quant "$QUANT" --spec "$SPEC" --ctx "$CTX" --gpu 0 --notes "$EXTRA" \
   --max-prompt $((MAXCTX - 256)) --reps ${REPS:-1}
 

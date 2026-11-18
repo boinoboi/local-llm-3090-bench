@@ -11,9 +11,10 @@ def rd(name):
 
 
 print("=" * 78)
-print("POWER TABLE  (results_power.csv, valid rows only)")
+print("POWER TABLE  (data/results_power.csv, workload=code, valid rows only)")
 print("=" * 78)
-rows = [r for r in rd("results_power.csv") if r.get("valid", "yes") == "yes"]
+rows = [r for r in rd("data/results_power.csv")
+        if r.get("valid", "yes") == "yes" and r.get("workload") == "code"]
 by = collections.defaultdict(list)
 for r in rows:
     by[int(float(r["PL_W"]))].append(r)
@@ -41,7 +42,7 @@ print()
 print("=" * 78)
 print("LLAMA.CPP DECODE (warm) and COLD PREFILL")
 print("=" * 78)
-ll = rd("results_llama.csv")
+ll = rd("data/results_llama.csv")
 d = {}
 for r in ll:
     d[(r["model"], int(r["ctx_target"]), r["phase"])] = r
@@ -60,9 +61,9 @@ for m in models:
 
 print()
 print("=" * 78)
-print("MEGAKERNEL (results_mk.csv)")
+print("MEGAKERNEL (data/results_mk.csv)")
 print("=" * 78)
-for r in rd("results_mk.csv"):
+for r in rd("data/results_mk.csv"):
     print(f"  {r['model']:<28} ctx={r['ctx_target']:<7} prompt={r['prompt_tokens']:<7} "
           f"prefill={r['prefill_tok_s']:<7} decode={r['decode_tok_s']:<7} "
           f"acc={r['draft_accept_pct']:<5}")

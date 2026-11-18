@@ -1,3 +1,8 @@
+"""SUPERSEDED by ../power_cli_sweep.py. This is the original sweep that produced the first
+91 rows of data/results_power.csv. It divides by peak draw and does not validate that the
+power limit actually applied. Kept only so the provenance of those rows is recoverable.
+"""
+
 #!/usr/bin/env python3
 """Power-limit sweep: decode tok/s at 8k context, N runs per limit.
 

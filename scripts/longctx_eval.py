@@ -8,12 +8,12 @@ manageable after the first request at each depth.
 import csv, json, os, random, re, statistics, sys, time
 import urllib.request
 
-sys.path.insert(0, os.path.expanduser("~/bench"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from accuracy_eval import build_tasks, grade, PROMPT_TMPL  # noqa: E402
 
 PORT = int(sys.argv[1])
 LABEL = sys.argv[2]
-OUT = os.path.expanduser("~/bench/results_longctx.csv")
+OUT = os.path.expanduser("~/bench/data/results_longctx.csv")
 FIELDS = ["model", "ctx_target", "task", "expected", "correct", "got", "latency_s"]
 DEPTHS = [1024, 65536]
 N_TASKS = 30

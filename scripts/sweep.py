@@ -82,7 +82,7 @@ def main():
     p.add_argument("--ctx", default="1024,4096,8192,16384,32768,65536,131072,262144")
     p.add_argument("--n-predict", type=int, default=128)
     p.add_argument("--max-ctx", type=int, default=262144)
-    p.add_argument("--csv", default=os.path.expanduser("~/bench/results.csv"))
+    p.add_argument("--csv", default=os.path.expanduser("~/bench/data/results.csv"))
     p.add_argument("--kv-type", default="q4_0")
     p.add_argument("--notes", default="")
     args = p.parse_args()

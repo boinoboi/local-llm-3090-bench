@@ -3,7 +3,7 @@
 import csv, os, glob
 
 HOME = os.path.expanduser("~")
-OUT = f"{HOME}/bench/results_all.csv"
+OUT = f"{HOME}/bench/data/data/results_all.csv"
 
 FIELDS = ["source", "engine", "model", "quant", "kv", "spec", "ctx_target", "phase",
           "prompt_tokens", "cached_tokens", "prefill_tok_s", "decode_tok_s",
@@ -11,8 +11,8 @@ FIELDS = ["source", "engine", "model", "quant", "kv", "spec", "ctx_target", "pha
           "draft_accept_pct", "tok_per_cycle", "notes"]
 
 SOURCES = [
-    (f"{HOME}/bench/results_llama.csv", "llama.cpp"),
-    (f"{HOME}/bench/results_mk.csv", "megakernel"),
+    (f"{HOME}/bench/data/results_llama.csv", "llama.cpp"),
+    (f"{HOME}/bench/data/results_mk.csv", "megakernel"),
 ]
 
 
@@ -60,7 +60,7 @@ def main():
             for r in csv.DictReader(fh):
                 rows.append(norm_llama(r) if kind == "llama.cpp" else norm_mk(r))
 
-    pw = f"{HOME}/bench/results_power.csv"
+    pw = f"{HOME}/bench/data/results_power.csv"
     if os.path.exists(pw):
         with open(pw) as fh:
             for r in csv.DictReader(fh):

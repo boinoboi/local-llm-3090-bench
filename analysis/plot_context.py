@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 HOME = os.path.expanduser("~")
 SRC = f"{HOME}/bench/driver_27b.out"
-OUT = f"{HOME}/bench/results_27b_spec.csv"
+OUT = f"{HOME}/bench/data/results_27b_spec.csv"
 FIELDS = ["model", "spec", "ctx", "phase", "prompt_tokens", "cached", "prefill_tok_s",
           "decode_tok_s", "ttft_s", "vram_mib"]
 

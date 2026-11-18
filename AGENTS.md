@@ -8,15 +8,20 @@ A measurement study, not an application. The deliverable is a set of numbers tha
 true to the raw data in this directory. Code here exists to produce and verify measurements.
 
 - **`STUDY.md`** — the paper (~1,630 lines). Mirror of `~/Videos/Learn/RTX-3090-Inference-Study.md`.
-- **`README.md`** — landing page and headline numbers.
-- **`results_*.csv`** — the data. Everything else is derived.
+- **`README.md`** — landing page, headline numbers, embedded figures.
+- **`data/results_*.csv`** — the data. Everything else is derived.
+- **`scripts/`** — produce data (measurement harness).
+- **`analysis/`** — consume data (verify, assert, plot).
+- **`figures/`** — published PNGs, referenced by both `STUDY.md` and `README.md`.
+
+Run every command from the repository root; analysis scripts resolve `data/…` relatively.
 
 If you change a number in `STUDY.md` that also appears in a CSV, you have created a bug.
 
 ## The gate
 
 ```bash
-.venv/bin/python assert_paper.py     # must print "30 passed, 0 failed"
+.venv/bin/python analysis/assert_paper.py     # must print "30 passed, 0 failed"
 ```
 
 Every headline figure is asserted against the CSVs. Run it before and after any edit that touches
@@ -25,8 +30,9 @@ data, prose containing numbers, or a sweep script. Do not report a change as don
 Other checks:
 
 ```bash
-.venv/bin/python verify_paper.py              # regenerate tables from CSVs
-python3 check_tables.py STUDY.md # table column consistency
+.venv/bin/python analysis/verify_paper.py        # regenerate tables from CSVs
+.venv/bin/python analysis/check_tables.py STUDY.md  # table column consistency
+.venv/bin/python analysis/plot_power.py           # figures -> plots/, copy to figures/
 ```
 
 `.venv` already exists with matplotlib. If missing: `python3 -m venv .venv && .venv/bin/pip install matplotlib`.
@@ -89,21 +95,21 @@ export MK_KV='K*=5r,V*=5' MK_KV_WIN=2048 MK_PF_CAP=1024 MK_KEEP_WARM_S=0
 
 | File | Rows | Notes |
 |---|---|---|
-| `results_llama.csv` | 87 | single-run context sweeps |
-| `results_llama_rep3.csv` | 64 | the replicated 35B series behind §8.1 — 4 runs/depth |
-| `results_power.csv` | 115 | `valid` + `workload` columns; filter both |
-| `results_energy.csv` | 21 | integrated decode-window energy, 3 runs/level |
-| `results_accuracy.csv` | 180 | graded answers; `model` may carry an `@s<seed>` suffix |
-| `results_longctx.csv` | 60 | padded-context probe at `max_tokens = 1200` |
-| `results_27b_spec.csv` | 46 | speculation ladder |
-| `results_all.csv` | 193 | older normalised aggregate — **stale**, do not cite |
+| `data/results_llama.csv` | 87 | single-run context sweeps |
+| `data/results_llama_rep3.csv` | 64 | the replicated 35B series behind §8.1 — 4 runs/depth |
+| `data/results_power.csv` | 115 | `valid` + `workload` columns; filter **both** |
+| `data/results_energy.csv` | 21 | integrated decode-window energy, 3 runs/level |
+| `data/results_accuracy.csv` | 180 | graded answers; `model` may carry an `@s<seed>` suffix |
+| `data/results_longctx.csv` | 60 | padded-context probe at `max_tokens = 1200` |
+| `data/results_27b_spec.csv` | 46 | speculation ladder |
+| `data/results_all.csv` | 193 | older normalised aggregate — **stale**, do not cite |
 
 ## Editing the study
 
 - Keep `STUDY.md` and `~/Videos/Learn/RTX-3090-Inference-Study.md` identical (`cp` one to the other).
 - Use `[M]` measured / `[R]` reported / `[D]` derived tags; do not present a vendor figure as measured.
-- Figures regenerate from `plot_*.py` into `plots/`; the published copies live in `figures/`.
-  Copy after regenerating.
+- Figures regenerate from `analysis/plot_*.py` into `plots/` (gitignored); the published copies live
+  in `figures/`. Copy after regenerating, then re-check the README still renders them.
 - When a claim is withdrawn or corrected, **say so in place**. The document keeps its mistakes
   visible (`§12`, `§13.2`, §8.4d) because that is the point of it.
 

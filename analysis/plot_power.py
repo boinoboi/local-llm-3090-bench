@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
 HOME = os.path.expanduser("~")
-SRC = f"{HOME}/bench/results_power.csv"
+SRC = f"{HOME}/bench/data/results_power.csv"
 OUTDIR = f"{HOME}/bench/plots"
 os.makedirs(OUTDIR, exist_ok=True)
 

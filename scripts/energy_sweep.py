@@ -11,7 +11,7 @@ import csv, os, re, statistics, subprocess, threading, time
 
 MK = os.path.expanduser("~/src/megakernel")
 MODEL = os.path.expanduser("~/models/qwen3.8/megakernel/Qwen3.8-27B-UD-Q4_K_M.gguf")
-OUT = os.path.expanduser("~/bench/results_energy.csv")
+OUT = os.path.expanduser("~/bench/data/results_energy.csv")
 LIMITS = [int(x) for x in os.environ.get("EN_LIMITS", "230,250,270,300,330,350,385").split(",")]
 REPS = int(os.environ.get("EN_REPS", "3"))
 CTX = 8192

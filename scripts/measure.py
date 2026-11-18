@@ -178,7 +178,7 @@ def main():
     ap.add_argument("--ctx", default="1024,4096,8192,16384,32768,65536,131072,262144")
     ap.add_argument("--n-predict", type=int, default=96)
     ap.add_argument("--gpu", default="0")
-    ap.add_argument("--csv", default=os.path.expanduser("~/bench/results.csv"))
+    ap.add_argument("--csv", default=os.path.expanduser("~/bench/data/results.csv"))
     ap.add_argument("--notes", default="")
     ap.add_argument("--max-prompt", type=int, default=0)
     ap.add_argument("--reps", type=int, default=1, help="cold repeats for decode variance")
