@@ -279,8 +279,8 @@ limit to expose the frontier rather than a single operating point.
 
 **Positioning.** Public serving benchmarks overwhelmingly report tokens/s at a default power limit
 on datacentre accelerators, and rarely report the power/performance frontier on consumer hardware.
-The value of this study is not a new algorithm but a *validated* measurement: **580 logged rows across
-ten result files** — timed context sweeps, power sweeps and graded answers — an explicit
+The value of this study is not a new algorithm but a *validated* measurement: **610 logged rows across
+nine result files** — timed context sweeps, power sweeps and graded answers — an explicit
 draw-validation filter that rejects 15.7 % of attempted power points, and documented failure modes.
 We treat the methodology (§4) as a contribution of equal weight to the results.
 
