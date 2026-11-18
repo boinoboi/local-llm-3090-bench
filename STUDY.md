@@ -1014,7 +1014,7 @@ The derivative is the interesting quantity. Converted to *extra tokens per extra
 | 350 → 370 | +0.95 | +22 | 0.043 |
 | 370 → 385 | +0.44 | +15 | **0.029** |
 
-**The first 38 W above idle buy 31.8 tok/s. The next 114 W buy 11.6 tok/s.**
+**The first 39 W (230 → 270 W) buy 31.8 tok/s. The next 114 W buy 11.6 tok/s.**
 Marginal efficiency falls by a factor of **32×** across the range.
 
 ### 10.4 Why efficiency and speed peak at different wattages
