@@ -9,6 +9,7 @@
 
 ## Contents
 
+  - [A Measured Study of Single-Stream LLM Inference on One RTX 3090](#a-measured-study-of-single-stream-llm-inference-on-one-rtx-3090)
 - [Abstract](#abstract)
 - [1. Introduction](#1-introduction)
   - [1.1 Contributions](#11-contributions)
@@ -54,7 +55,7 @@
   - [10.2 Results [M]](#102-results-m)
   - [10.3 Marginal return](#103-marginal-return)
   - [10.4 Why efficiency and speed peak at different wattages](#104-why-efficiency-and-speed-peak-at-different-wattages)
-  - [10.5 Independent replication on a different workload](#105-independent-replication-on-a-different-workload)
+  - [10.5 Robustness: does the optimum move with the workload?](#105-robustness-does-the-optimum-move-with-the-workload)
   - [10.6 Recommended operating points](#106-recommended-operating-points)
 - [11. Economics](#11-economics)
   - [11.1 Tariff model [R]](#111-tariff-model-r)
@@ -84,6 +85,7 @@
   - [Figure 2 — Why the two curves peak at different wattages](#figure-2--why-the-two-curves-peak-at-different-wattages)
   - [Figure 3 — Speculation backends across context depth](#figure-3--speculation-backends-across-context-depth)
   - [Figure 4 — Auto-graded accuracy by task family](#figure-4--auto-graded-accuracy-by-task-family)
+  - [Figure 5 — The efficiency optimum replicates across workloads](#figure-5--the-efficiency-optimum-replicates-across-workloads)
 
 ## Abstract
 
@@ -103,16 +105,17 @@ At 8,192-token context the megakernel delivers **152.3 tokens/s at 385 W** and *
 advantage at equal power and **2.1×** at the engine's higher operating point, while carrying roughly
 **twice the weight precision** (Q4_K_M versus IQ2_XS) and reproducing the reference distribution at
 least as faithfully. We further characterise the full 262,144-token native window on a 24 GB card
-using mixed-precision KV presets, and we quantify the **power/performance frontier** with 108
-measurements across eleven power limits between 230 W and 385 W.
+using mixed-precision KV presets, and we quantify the **power/performance frontier** with **115
+validated measurements** across eleven power limits between 230 W and 385 W, repeated on two
+independent prompt workloads.
 
 The headline finding is that **the fastest operating point is not the most efficient one**:
 decode throughput rises monotonically to 152.8 tok/s at 385 W, but energy efficiency peaks at
 **270 W (141.2 tok/s, 521.8 tok/s per kW)** and degrades by 31 % in cost-per-token by the time
 the card reaches its limit. The last 115 W buy 8 % more speed for 42 % more power.
 
-We additionally run a thirty-task, auto-graded accuracy probe with programmatically computed ground
-truth, repeated on two independent task sets. The 27B scores **60/60** and the 35B-A3B **53/60**
+We additionally run an auto-graded accuracy probe — thirty tasks, two seeds, ground truth computed by
+program execution rather than annotation. The 27B scores **60/60** and the 35B-A3B **53/60**
 (two-proportion z = 2.73, p = 0.0064), with the entire deficit concentrated in character counting —
 arithmetic and code-output prediction are tied at 100 % on both seeds.
 We report that result with its confounds rather than as a general ranking.
@@ -612,29 +615,43 @@ dominates.
 **e) Prefill throughput peaks at 4 K** (~3.7–3.9 K tok/s) and decays monotonically to 1,456 tok/s
 at 256 K. The decay is the price of attention over a growing KV.
 
-### 8.3 megakernel context scaling [M]
+### 8.3 megakernel context scaling — and why one run is not enough [M]
 
-| Context | q8_0 KV (ceiling ≈120 K) | preset F, 5-bit (ceiling 262 K) |
-|---|---|---|
-| 1 K | 133.6 | 104.2 |
-| 8 K | **158.3** | — |
-| 32 K | 134.4 | 98.5 |
-| 64 K | 89.1 | — |
-| 131 K | *exceeds ceiling* | 57.3 – 87.5 |
-| 262 K | *exceeds ceiling* | *single 230 K read only* |
+A first attempt measured each depth once and produced a table that could not be trusted: the single
+131 K points disagreed by 52 % (57.3 and 87.5 tok/s), and there was no way to tell configuration
+effects from noise. The sweep was therefore repeated three times per depth, with a unique prompt each
+time, on the full-window configuration (preset F, `MK_PF_CAP=1024`, 7 drafts):
 
-Two caveats, both real:
+| Context | n | Median tok/s | Observed range | Draft acceptance |
+|---|---|---|---|---|
+| 1 K | 3 | **132.8** | 120.0 – 138.0 | 63 – 68 % |
+| 8 K | 3 | 113.0 | 108.5 – 113.8 | 54 – 57 % |
+| 32 K | 3 | 115.0 | 109.9 – 123.9 | 64 – 69 % |
+| 64 K | 1 | 109.2 | — | 73 % |
+| 131 K | — | *server unstable* | — | — |
 
-- **Preset F costs throughput.** At 1 K it is 22 % slower than q8_0 (104 vs 134) because every
-  attention read unpacks 5-bit tiles. That is the price of the extra 142 K of context, and it is
-  worth paying only if long context is actually used.
-- **The two 131 K preset-F measurements disagree** (57.3 and 87.5 tok/s). The second used
-  `MK_PF_CAP=1024` and reported 56 % draft acceptance against 48 %; we cannot separate the
-  configuration effect from the acceptance effect with the logs available, so both are reported.
+Three things follow, and the second is more important than the numbers.
 
-Apart from that, decode is roughly flat to ~8 K, then falls ~44 % by 64 K and ~64 % by 131 K. This
-is the expected signature of a hybrid stack: the 16 full-attention layers still scan a growing
-cache, while the 48 GDN layers do not.
+**a) Preset F holds up better than the single runs suggested.** At 1 K it delivers 133 tok/s, not the
+104 previously reported, and it stays above 109 tok/s to 64 K. The earlier 57.6 tok/s at 131 K was
+almost certainly a degraded run, not a property of the cache format.
+
+**b) Throughput is content-dependent, and this is a general problem.** Draft acceptance ranged from
+**54 % to 73 %** across runs at the *same context length*, because it depends on what the model
+chooses to write. That produced spreads up to **18 tok/s (13 %)** at 1 K. Any speculative-decoding
+benchmark built on a single generation is therefore measuring luck as much as hardware, and we now
+treat single measurements in this study as indicative only.
+
+**c) The engine's server is not stable past ~64 K with repeated long prompts.** It exited without
+diagnostic during the second 64 K repetition and refused connections thereafter; the same failure
+appeared in §12.5 with repeated identical prompts. Single long requests complete correctly (a
+229,978-token cold read finished in 355 s), so this is a state-management defect in the *server*
+layer, not in the model or the kernels. It cost this study its 131 K replication and is recorded as
+a limitation (§14).
+
+For comparison, the same model on `llama.cpp` with q8 KV in single runs decayed from 158 tok/s at
+8 K to 89 tok/s at 64 K (§8.1). Because those are single measurements they carry the same caveat,
+but the direction is consistent with the replicated series.
 
 ## 9. Quality: is the larger model actually smarter?
 
@@ -760,10 +777,13 @@ answered with data.
 
 ### 10.1 Protocol
 
-Eleven power limits between 230 W and 385 W, 6–10 independent repetitions each, one fresh engine
-process per measurement, 8,192-token context, greedy decoding, 256 generated tokens,
+Eleven power limits between 230 W and 385 W on the primary (code-generation) workload, with a
+four-level confirmation sweep on a second (prose) workload. Six to ten independent repetitions per
+level, one fresh engine process per measurement, 8,192-token context, greedy decoding, 256
+generated tokens,
 Qwen3.8-27B at UD-Q4_K_M with 7 MTP drafts and a q8_0 KV cache. Runs where `draw_W_peak` fell
-below 93 % of the requested limit were discarded (§4.3), leaving **91 valid measurements from 108**.
+below 93 % of the requested limit were discarded (§4.3), leaving **91 valid measurements out of
+108 attempted on this workload** (a further 24 were collected on the prose workload, all valid).
 
 For each run we record the engine's own reported decode rate, the peak and median GPU draw sampled
 at 6.7 Hz, and the draft acceptance rate.
@@ -985,8 +1005,11 @@ declaring `mtp_num_hidden_layers: 1`. One conversion log passes `--no-mtp` expli
 
 The megakernel server terminated during the fourth consecutive request with a byte-identical
 prompt and `MK_EXACT=1` (the checkpoint-resume path), with no diagnostic. Workaround: disable
-exact reuse for synthetic benchmarks, or vary the prompt. This affected only the server, not the
-CLI, and only with repeated identical inputs — pathological in benchmarking, unlikely in real use.
+exact reuse for synthetic benchmarks, or vary the prompt. The same defect ended the context replication of §8.3 at 64 K: the second repetition disconnected
+without diagnostic and every later request was refused. Single long requests are unaffected — a
+229,978-token cold read completed correctly — so the fault is in conversation state management, not
+in the kernels. It is the one thing in this study that we could not work around, and it is why the
+131 K replication in §8.3 is missing.
 
 ### 12.6 Tokenizer miscalibration invalidated a whole sweep
 
@@ -1081,6 +1104,8 @@ For a single 24 GB card serving one user:
 | The 5060 Ti was never evaluated | No statement about multi-GPU | Deliberately out of scope: no NVLink, no benefit for fitting models |
 | Single stream only | No batching or multi-user | Explicit: all measurements are batch = 1 |
 | Upstream benchmarks not reproduced | Vendor claims uncorroborated | Directionally consistent, tagged [R], not used as evidence |
+| Megakernel server unstable past ~64 K | No 131 K replication of the context sweep | Reported as a failure (§8.3c, §12.5) rather than interpolated |
+| Speculative throughput is content-dependent | Single runs carry up to 13 % content noise | 3–10 repetitions where it matters; single runs flagged (§8.3b) |
 
 ---
 
