@@ -53,7 +53,7 @@ for s in ("top", "right"):
     ax.spines[s].set_visible(False)
 ax.legend(frameon=False, fontsize=10.5, loc="lower left")
 
-ax.annotate("2.4× gap at 128 K", xy=(131072, 104), xytext=(5000, 62),
+ax.annotate("2.2× gap at 128 K", xy=(131072, 104), xytext=(5000, 62),
             fontsize=10.5, color="#e08fa0", fontweight="bold",
             arrowprops=dict(arrowstyle="->", color="#e08fa0", lw=1.5,
                             connectionstyle="arc3,rad=-0.15"))

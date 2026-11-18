@@ -616,7 +616,7 @@ prompt each time — and are reported as medians with the observed range. Everyt
 | 16 K | 230.7 | 2.2 % | 198.5 | 2.6 % | +16.2 % |
 | 32 K | 223.2 | 3.4 % | 156.4 | 2.8 % | **+42.7 %** |
 | 64 K | 190.8 | 5.6 % | 117.9 | 2.1 % | +61.8 % |
-| 128 K | 143.9 | 2.1 % | 66.1 | 3.9 % | **+117.8 %** |
+| 128 K | 143.9 | 2.1 % | 66.1 | 3.9 % | **+117.7 %** |
 | **256 K** | **94.0** | 4.4 % | 58.3 | 0.5 % | +61.2 % |
 
 Cold prefill (tok/s), same runs:
@@ -646,7 +646,7 @@ This is the study's most counter-intuitive result and it is not marginal.
 | 128 K | 66.1 | 143.9 | −54.1 % |
 | 256 K | 58.3 | 94.0 | −38.0 % |
 
-A **smaller file is 2.4× slower at 128 K** on identical hardware, identical engine and identical
+A **smaller file is 2.2× slower at 128 K** on identical hardware, identical engine and identical
 settings. Three effects plausibly combine, in order of likely size:
 
 1. **Draft acceptance.** Speculative decoding depends on the draft head, which the 2-bit
@@ -1253,10 +1253,13 @@ All raw data, scripts and plots: https://github.com/boinoboi/local-llm-3090-benc
 
 ## 16. Conclusion
 
-On a single RTX 3090 at 270 W, a 27-billion-parameter hybrid-attention model generates
-**141 tokens per second** at 8,192 tokens of context, for **$0.114 per million output tokens**.
+On one consumer graphics card, the fastest single stream measured was **250.6 tokens per second** —
+a 35-billion-parameter mixture-of-experts activating 3 billion, at 3.9 bits per weight — and the same
+configuration sustained **94.0 tokens per second with the full 262,144-token window resident**. At the
+most economical power setting for a 24/7 machine, 270 W, a 27-billion-parameter hybrid model generated
+**141 tokens per second** at 8 K context for **$0.114 per million output tokens**.
 
-That sentence is the result. Everything else in this document is the work required to justify it:
+Those numbers are the result. Everything else in this document is the work required to justify them:
 
 - The 27B is not a dense transformer; **48 of its 64 layers keep no KV cache**, which makes long
   context affordable.
@@ -1271,8 +1274,8 @@ That sentence is the result. Everything else in this document is the work requir
 - **Fewer bits is not faster.** A 2.3 bpw build of the same model was 30 % slower at 32 K and 54 %
   slower at 128 K than its 3.9 bpw sibling. Compression is not free; it moves cost into the kernels.
 - The 27B answered **60 of 60** auto-graded tasks across two seeds; the 35B-A3B answered **53 of 60**
-  (z = 2.73, p = 0.0064), with the whole deficit in one task family. The larger MoE is 1.4× faster,
-  not obviously smarter.
+  (z = 2.73, p = 0.0064), with the whole deficit in one task family. The larger MoE is 1.6× faster
+  at 8 K, not obviously smarter.
 - And on a machine that runs 24/7, **idle draw and lit monitors cost more than all the inference**.
 
 The broader lesson is that local inference has become a *systems* problem where measurement beats
@@ -1499,6 +1502,6 @@ artefact of one benchmark prompt.
 ![Decode throughput for Q3_K_M versus Q2_K across context](figures/quant_speed.png)
 
 The same 35B-A3B, same engine, same settings, four runs per point. The 3.9 bpw build is faster at
-every depth and the gap **widens** with context, reaching 2.4× at 128 K. Prefill is unaffected
+every depth and the gap **widens** with context, reaching 2.2× at 128 K. Prefill is unaffected
 (1,273 vs 1,321 tok/s at 256 K), so the penalty is specific to speculative decode — most plausibly
 because the draft head is quantised too.
