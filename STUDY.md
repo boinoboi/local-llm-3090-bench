@@ -1452,6 +1452,7 @@ peak draw 230 W despite a requested limit of 290 W
 | `results_27b_spec.csv` | 46 rows: 27B speculation ladder, 1 K–262 K |
 | `accuracy_eval.py` | auto-graded probe with programmatically computed ground truth |
 | `verify_paper.py` | recomputes every table from the raw CSVs |
+| `assert_paper.py` | **21 machine-checked assertions**: every headline number in this document is asserted against the raw data, and the suite exits non-zero on any mismatch |
 | `plot_context.py`, `plot_accuracy.py` | figures 3 and 4 |
 | `plots/power_curve.png` | speed / efficiency / cost versus power |
 | `plots/efficiency_explained.png` | the marginal-return argument |
@@ -1464,6 +1465,12 @@ peak draw 230 W despite a requested limit of 290 W
 stopped, display blanking at 5 minutes without lock or suspend, `MK_KEEP_WARM_S=0`.
 
 ---
+
+**Verification.** The 21 headline numbers in this document — the replicated throughput series, the
+power-sweep extrema and efficiency peak, the cost figures, the pooled accuracy counts and test
+statistics, and the KV arithmetic — are asserted directly against the raw CSVs by `assert_paper.py`,
+which exits non-zero on any mismatch. Re-running it is the fastest way to check that this document
+still matches its data.
 
 *Measurements performed on 18 November 2026. All throughput figures are single-stream, greedy
 decoding, batch size 1. Prices are those in force on the date of measurement and will drift.*
