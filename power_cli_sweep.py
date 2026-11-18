@@ -24,8 +24,7 @@ LIMITS = [int(x) for x in os.environ.get("PL_LIMITS", "230,250,270,290,310,330,3
 REPS = int(os.environ.get("PL_REPS", "10"))
 CTX = int(os.environ.get("PL_CTX", "8192"))
 NPRED = int(os.environ.get("PL_NPRED", "256"))
-PROMPT = ("Write a C function that merges two sorted linked lists and explain each "
-          "line of it in detail, then give the complexity of every step.")
+PROMPT = os.environ.get("PL_PROMPT", "Write a C function that merges two sorted linked lists and explain each line of it in detail, then give the complexity of every step.")
 
 RE_DEC = re.compile(r"decode (\d+) tok in ([0-9.]+) s = ([0-9.]+) tok/s \| cycles (\d+), accepted (\d+)/(\d+) drafts \(([0-9.]+)%\), ([0-9.]+) tok/cycle")
 FIELDS = ["PL_W", "actual_W", "run", "decode_tok_s", "accept_pct", "tok_per_cycle",
