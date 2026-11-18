@@ -7,9 +7,21 @@
 **Artefacts:** https://github.com/boinoboi/local-llm-3090-bench
 **Licence:** CC BY 4.0 for this document; measurements released with no warranty
 
+> ### At a glance
+>
+> | Question | Answer |
+> |---|---|
+> | Fastest config measured | **152.8 tok/s** — 27B Q4_K_M, megakernel, 385 W |
+> | Fastest at the efficient point | **141.2 tok/s** — same, 270 W |
+> | Most economical setting | **270 W**, $0.114 per million output tokens |
+> | Best speed per watt | **521.8 tok/s per kW** at 270 W |
+> | Full native context on 24 GB | **262,144 tokens** at 23,432 MiB, 5-bit KV + 8-bit recency window |
+> | Biggest engine gain | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
+> | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
+> | What actually dominates the bill | **idle draw + lit monitors**, ~70 % of a 24/7 machine |
+
 ## Contents
 
-  - [A Measured Study of Single-Stream LLM Inference on One RTX 3090](#a-measured-study-of-single-stream-llm-inference-on-one-rtx-3090)
 - [Abstract](#abstract)
 - [1. Introduction](#1-introduction)
   - [1.1 Contributions](#11-contributions)
@@ -43,7 +55,7 @@
 - [8. Context scaling](#8-context-scaling)
   - [8.1 llama.cpp, 35B-A3B hybrid MoE [M]](#81-llamacpp-35b-a3b-hybrid-moe-m)
   - [8.2 Observations](#82-observations)
-  - [8.3 megakernel context scaling [M]](#83-megakernel-context-scaling-m)
+  - [8.3 megakernel context scaling — and why one run is not enough [M]](#83-megakernel-context-scaling--and-why-one-run-is-not-enough-m)
 - [9. Quality: is the larger model actually smarter?](#9-quality-is-the-larger-model-actually-smarter)
   - [9.1 Motivation](#91-motivation)
   - [9.2 Design](#92-design)
@@ -86,6 +98,7 @@
   - [Figure 3 — Speculation backends across context depth](#figure-3--speculation-backends-across-context-depth)
   - [Figure 4 — Auto-graded accuracy by task family](#figure-4--auto-graded-accuracy-by-task-family)
   - [Figure 5 — The efficiency optimum replicates across workloads](#figure-5--the-efficiency-optimum-replicates-across-workloads)
+- [Appendix D — Glossary](#appendix-d--glossary)
 
 ## Abstract
 
@@ -169,7 +182,7 @@ measurement pitfalls that produced them.
   failed to apply.
 - An **economic model** converting joules per token into local electricity cost, and a comparison
   against hosted API pricing.
-- A catalogue of **six reproducible failure modes** that invalidate naive benchmarking.
+- A catalogue of **seven reproducible failure modes** that invalidate naive benchmarking.
 
 ---
 
@@ -178,8 +191,10 @@ measurement pitfalls that produced them.
 ### 2.1 Hybrid attention and Gated DeltaNet
 
 Standard softmax attention retains a key and value vector per token per layer, so the KV cache
-grows as O(T). At 262,144 tokens a 64-layer model with 4 KV heads and head dimension 256 would
-require 17.2 GB of cache in fp16 — before a single weight is loaded.
+grows as O(T). At 262,144 tokens, a model with 64 attention layers, 4 KV heads and head dimension 256
+would need **68.7 GB** of fp16 cache — before a single weight is loaded. Caching only the 16
+full-attention layers that a 3:1 hybrid actually has brings that to **17.2 GB**, which is the
+difference between impossible and merely tight on a 24 GB card.
 
 Linear attention replaces the softmax kernel with a recurrent state update,
 `S_t = α_t · S_{t−1} + v_t k_tᵀ`, giving O(1) state per layer [1]. Gated DeltaNet adds a
@@ -230,7 +245,7 @@ and finds them within ±15 % of each other — with MTP the only one available i
 trade unbounded KV growth for a fixed-size recurrent state, and Qwen3-Next established the 3:1
 interleave with full attention that Qwen3.6/3.8 inherit [3]. Because only a quarter of layers cache
 KV, the memory arithmetic that governs long-context serving changes by roughly 4× — a fact that is
-easy to get wrong and that we initially got wrong by a factor of 19 (§6.1).
+easy to get wrong, and that we initially got wrong by nearly 5× (§6.1).
 
 **KV-cache quantisation.** KIVI [10] and KVQuant [11] established asymmetric, per-channel and
 recency-aware cache compression, and independent work on hybrid 27B models shows the GDN stack is
@@ -409,7 +424,7 @@ full-attention layers. An independent study of the same architecture family repo
 48-of-64 count [6], which we treat as external corroboration.
 
 **Finding 2 — the 35B-A3B is also hybrid**, at 30 GDN to 10 full. This invalidated our initial
-KV-cache arithmetic (§6.1) by a factor of ~19.
+KV-cache arithmetic (§6.1) by nearly 5×, compounded by using the wrong head configuration.
 
 ### 5.2 Tensor-level verification [M]
 
@@ -467,9 +482,14 @@ layers to total layers. Our corrected census:
 | Qwen3.8-27B | 16 / 64 | **64 KB** | 2.1 GB | 8.6 GB | **17.2 GB** |
 | MiMo-V2.6-9B (approx.) | ~8 / 32 | **32 KB** | 1.1 GB | 4.3 GB | **8.6 GB** |
 
-Our initial estimate for the 35B-A3B at 262 K was **25.7 GB** — 19× too high — because it assumed
-all 40 layers held attention state. Only 10 do. **This single error would have made full-context
-inference look impossible when it is in fact comfortable.**
+Our initial estimate for the 35B-A3B at 262 K was **25.7 GB** — **4.8× too high** — for two
+compounding reasons: it assumed every layer held attention state, and it used the head configuration
+of a neighbouring model (48 layers × 4 KV heads × 128 dim) instead of the real one
+(40 layers, of which 10 cache KV, × 2 heads × 256 dim). The two errors multiply.
+
+Correct arithmetic: 2 × 10 × 2 × 256 × 2 bytes = 20 KB per token, so 5.4 GB at 262 K, not 25.7 GB.
+**That error alone would have made full-context inference look impossible when it is in fact
+comfortable** — and it is the kind of mistake a config file settles in ten seconds.
 
 ### 6.2 Measured VRAM at full context [M]
 
@@ -947,7 +967,7 @@ when doing nothing.
 | Component, 730 h/month | Energy | ₹ | **$** |
 |---|---|---|---|
 | PC idling (~120 W) | ~88 kWh | ₹1,756 | **$18.8** |
-| Two 1080p monitors (20–30 W each) | ~44 kWh | ~₹880 | **$9.4** |
+| Two 1080p monitors (20–30 W each) | 29–44 kWh | ₹580–880 | **$6.2–9.4** |
 | Inference, 2 h/day at 270 W | ~16 kWh | ~₹320 | **$3.4** |
 
 **Roughly 70 % of the monthly bill is equipment doing nothing.** The cheapest optimisation is not a
@@ -1363,3 +1383,35 @@ absolute level because draft acceptance differs between workloads.
 
 This is the strongest evidence in the study that the optimum is a hardware property rather than an
 artefact of one benchmark prompt.
+
+---
+
+## Appendix D — Glossary
+
+| Term | Meaning in this document |
+|---|---|
+| **prefill** | Processing the prompt: one forward pass over all prompt tokens at once. Compute-bound, reported in tok/s. |
+| **decode** | Generating output one token at a time. Memory-bandwidth-bound, reported in tok/s. |
+| **TTFT** | Time to first token: prefill time plus queueing. What a user perceives as "responsiveness". |
+| **KV cache** | Stored key/value vectors for every previous token at every full-attention layer. Grows linearly with context; dominates memory at long context. |
+| **GQA** | Grouped-query attention: fewer KV heads than query heads, shrinking the cache by the head ratio. |
+| **GDN / Gated DeltaNet** | A linear-attention layer with a fixed-size recurrent state, so it keeps *no* per-token cache. Qwen3.x hybrid models use 3 GDN layers per 1 full-attention layer. |
+| **hybrid model** | An architecture mixing linear-attention layers (fixed state) with full-attention layers (growing cache). Determines the real KV budget. |
+| **MoE / mixture of experts** | A model where each token is routed to a few of many expert sub-networks. Total parameters are large; *active* parameters are small. |
+| **active parameters** | The parameters actually read to produce one token. This, not total size, sets decode speed. |
+| **quantisation** | Storing weights (or cache) at fewer bits. `Q4_K_M` ≈ 4.5 bits per weight; `IQ2_XS` ≈ 2.3. Lower is smaller and usually faster, but loses quality. |
+| **bpw** | Bits per weight — the honest way to compare quantisation levels across schemes. |
+| **speculative decoding** | Drafting several tokens, then verifying them all in one target-model pass. Lossless when implemented correctly. |
+| **MTP / Multi-Token Prediction** | A draft head trained into the checkpoint itself, so speculation needs no separate model. Appears as `nextn` tensors in GGUF. |
+| **acceptance rate (α)** | The share of drafted tokens the target model accepts. Drives the speed-up: expected accepted length ≈ 1 + α + α² + … |
+| **DFlash2** | A block-diffusion drafter that proposes a whole block in one pass, with a selector choosing a coherent path. |
+| **n-gram / lookup speculation** | Drafting by copying spans from the prompt or history. Free (no weights), effective on code and RAG, useless on novel prose. |
+| **prefix caching** | Reusing the KV cache for an unchanged prompt prefix, so repeated turns skip prefill entirely. |
+| **KV quantisation** | Storing the cache at 8, 5 or fewer bits. The main lever for fitting long context on a small card. |
+| **power limit (`-pl`)** | The board's sustained power ceiling in watts. Sets the clock ceiling, and therefore the speed/efficiency trade-off this study is about. |
+| **PL1 / PL2** | CPU sustained / short-burst power limits (Intel). |
+| **tok/s per kW** | Efficiency: throughput divided by board power. Peaks before throughput does. |
+| **J/token** | Energy per generated token. Directly convertible to money via a tariff. |
+| **KL divergence** | How far a modified model's next-token distribution has drifted from its base. Used here to audit abliteration quality; lower is better. |
+| **ableration / heretic** | Removing refusal directions from a model's activations. "Heretic" tooling optimises the edit to minimise KL. |
+| **Wilson interval** | A confidence interval for a proportion that stays inside [0, 1] near the extremes, unlike the normal approximation. |
