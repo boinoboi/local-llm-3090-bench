@@ -11,15 +11,16 @@
 >
 > | Question | Answer |
 > |---|---|
-> | Fastest config measured | **152.8 tok/s** — 27B Q4_K_M, megakernel, 385 W |
-> | Fastest at the efficient point | **141.2 tok/s** — same, 270 W |
+> | Fastest configuration measured | **250.6 tok/s** — 35B-A3B Q3_K_M + MTP, `llama.cpp`, 8 K, 230 W |
+> | Fastest single-stream 27B | **152.8 tok/s** — Q4_K_M megakernel at 385 W; 141.2 at 270 W |
 > | Most economical setting | **270 W**, $0.114 per million output tokens |
-> | Best speed per watt | **521.8 tok/s per kW** at 270 W |
+> | Best speed per watt | **521.8 tok/s per kW** at 270 W, replicated on a second workload |
 > | Full native context on 24 GB | **262,144 tokens** at 23,432 MiB, 5-bit KV + 8-bit recency window |
-| Fastest at 262 K | **94.0 tok/s** — 35B-A3B at Q3_K_M, `llama.cpp`, 4-rep median |
-> | Biggest engine gain | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
+> | Fastest at 262 K | **94.0 tok/s** — 35B-A3B Q3_K_M, four-run median |
+> | Engine gain, same model | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
+> | 2-bit vs 4-bit | **slower** at every depth — 58 vs 94 tok/s at 262 K |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
-> | What actually dominates the bill | **idle draw + lit monitors**, ~70 % of a 24/7 machine |
+> | What dominates the bill | **idle draw + lit monitors**, ~70 % of a 24/7 machine |
 
 ## Contents
 
@@ -117,11 +118,13 @@ sparse mixture-of-experts model (Qwen3.6-35B-A3B), we compare two serving stacks
 single-kernel CUDA engine (`qwen38-megakernel`) — across context depths from 1,024 to 229,978
 tokens.
 
-At 8,192-token context the megakernel delivers **152.3 tokens/s at 385 W** and **109.4 tokens/s at
-230 W**, against llama.cpp's **71.1 tokens/s at 230 W** with the same model class. That is a **1.5×**
-advantage at equal power and **2.1×** at the engine's higher operating point, while carrying roughly
-**twice the weight precision** (Q4_K_M versus IQ2_XS) and reproducing the reference distribution at
-least as faithfully. We further characterise the full 262,144-token native window on a 24 GB card
+Holding the model class fixed, at 8,192-token context the megakernel delivers **152.3 tokens/s at
+385 W** and **109.4 tokens/s at 230 W**, against `llama.cpp`'s **71.1 tokens/s at 230 W**. That is a
+**1.5×** advantage at equal power and **2.1×** at the engine's higher operating point, while carrying
+roughly **twice the weight precision** (Q4_K_M versus IQ2_XS) and reproducing the reference
+distribution at least as faithfully. Across all configurations the fastest single stream measured is
+not that engine but a 35B-A3B mixture-of-experts on `llama.cpp`: **250.6 tokens/s at 8 K** and
+**94.0 tokens/s at the full 262,144-token window**. We further characterise the full 262,144-token native window on a 24 GB card
 using mixed-precision KV presets, and we quantify the **power/performance frontier** with **115
 validated measurements** across eleven power limits between 230 W and 385 W, repeated on two
 independent prompt workloads.
@@ -391,8 +394,9 @@ each time (chosen because the engine's in-process checkpoint reuse proved crash-
 Within-level spread is small: 0.11–1.41 tok/s at 6-10 repetitions, i.e. **0.1–1.3 %**.
 Reported values are medians.
 
-Context-scaling points are single measurements per cell; we flag this in §14 as the main
-limitation of those tables.
+The two configurations that carry the study's main context claims (§8.1) use **four runs per
+depth**; the remaining configurations are single measurements and are labelled indicative wherever
+they appear. The megakernel series is replicated at three depths (§8.4).
 
 ### 4.6 Statistical treatment
 
@@ -669,27 +673,35 @@ read these as direction, not as values):
 
 ### 8.3 Observations
 
-**a) The MoE model is 7× faster than the dense 27B at equal quantisation.** 3 B active parameters
-versus 27 B means roughly a ninth of the weight traffic per token. At 1 K context the 35B-A3B with
-MTP does 211 tok/s against the 27B's 30. *Architecture dominates size.*
+Each observation states whether it rests on the replicated series (four runs per point) or on the
+indicative single-run series.
 
-**b) Speculation is worth ~1.4× early and ~2.6× late.** At 1 K, MTP adds little (the prompt is
-short and acceptance is moderate); at 128 K it nearly doubles throughput (87 vs 58) because
-speculative verify amortises the KV read across 8 rows.
+**a) Architecture dominates size — replicated.** The 35B-A3B MoE at Q3_K_M reaches **226.8 tok/s**
+at 1 K and **94.0 tok/s** at 262 K, while the 27B model that applies all its parameters to every
+token does **30 tok/s** at 1 K. Three billion active parameters against twenty-seven is roughly a
+ninth of the weight traffic per token, and the measured ratio is **7.6×**.
 
-**c) n-gram speculation measured as worthless — and that is a harness artefact.** With random
-word-salad prompts there are no repeated spans to copy, so `ngram-simple` is indistinguishable
-from no speculation (155 vs 156 tok/s). On code or RAG workloads, where the output echoes the
-prompt, the same mechanism is known to give 1.5–3×. **We report this as a negative result about
-the benchmark, not about the technique.**
+**b) Speculation helps more as context grows — indicative.** From the single-run series, MTP adds
+little at 1 K (the prompt is short and acceptance moderate) but nearly doubles throughput at 128 K
+(87 vs 58 tok/s), because one verification pass amortises the KV read across up to eight rows. The
+replicated runs confirm the mechanism indirectly: acceptance in the replicated series ranged
+54–73 % depending on content (§8.4b), and the speed-up tracks acceptance, not context per se.
 
-**d) Prefill is far less affected by speculation than decode**, as expected — speculation only
-touches the verification loop, not prompt ingestion. Note the counter-intuitive 1 K cold-prefill
-dip (1,426 with MTP vs 2,174 without): at very short prompts the draft head's initialisation cost
-dominates.
+**c) n-gram speculation measured as worthless — a harness artefact.** With random word-salad prompts
+there are no repeated spans to copy, so `ngram-simple` is indistinguishable from no speculation
+(155 vs 156 tok/s). On code or RAG workloads, where output echoes the prompt, the same mechanism is
+known to give 1.5–3×. **This is a negative result about the benchmark, not about the technique**, and
+it is the reason we do not quote an n-gram speed-up anywhere in this study.
 
-**e) Prefill throughput peaks at 4 K** (~3.7–3.9 K tok/s) and decays monotonically to 1,456 tok/s
-at 256 K. The decay is the price of attention over a growing KV.
+**d) Prefill is far less affected by speculation than decode — replicated.** Across the 4-run
+series, cold prefill at 8 K is 3,501–3,858 tok/s with MTP enabled, while decode in the same runs is
+203–251 tok/s. Speculation changes the verification loop, not prompt ingestion. The one
+counter-intuitive point is a 1 K dip in the indicative series (1,426 with MTP vs 2,174 without):
+at very short prompts the draft head's initialisation cost is not amortised.
+
+**e) Prefill peaks near 4 K and decays from there — replicated.** 3,986 tok/s at 4 K falls
+monotonically to **1,321 tok/s at 256 K** for Q3_K_M, a 3× loss. That decay is the price of attention
+over a growing KV and it is the reason TTFT at long context is measured in minutes, not seconds.
 
 ### 8.4 megakernel context scaling — and why one run is not enough [M]
 
@@ -1179,7 +1191,8 @@ For a single 24 GB card serving one user:
 | Threat | Effect | Mitigation |
 |---|---|---|
 | Single machine, single GPU | No cross-hardware generalisation | Stated throughout; all claims are RTX 3090 / SM 8.6 |
-| Context tables are single measurements | Unknown variance per cell | Power study uses 6–10 reps and shows 0.1–1.3 % spread, bounding the likely error |
+| Some context cells are single measurements | Unknown variance per cell | The main series uses 4 reps (spread 0.5–5.6 %); single-run cells are labelled indicative |
+| Megakernel replication stops at 64 K | No replicated 131–262 K points for that engine | Failure reported in §8.4c, not interpolated |
 | Synthetic prompts depress draft acceptance | Speed-ups understated | Acceptance reported per row; code-prompt replication in §10.5 shows +37.6 % |
 | Power state differs between datasets | Cross-table comparisons can mislead | Every table states its power limit |
 | No independent accuracy evaluation | Cannot confirm upstream KL claims | §7.1 compares only engines we ran; accuracy figures are tagged [R] |
