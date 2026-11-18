@@ -4,3 +4,4 @@
 server_*
 ninfer_*
 mk_*.log
+.venv/
