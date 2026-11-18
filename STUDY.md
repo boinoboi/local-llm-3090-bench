@@ -439,9 +439,14 @@ Read directly from each model's `config.json`:
 | MiMo-V2.6-9B | 32 | hybrid (`ssm_*`) | — | 4 | 256 | — | 9 B | 262,144 | 1 |
 | Qwen3.8-Flash-Next | 48 | 36 | 12 | 2 | 256 | 512 | 6 B | 262,144 | 1 + n-gram |
 
-**Finding 1 — the 27B is not a plain dense transformer.** It is hybrid: 48 GDN layers plus 16
-full-attention layers. An independent study of the same architecture family reports the identical
-48-of-64 count [6], which we treat as external corroboration.
+**Finding 1 — the 27B is hybrid in attention but dense in feed-forward.** It has 48 GDN layers plus
+16 full-attention layers, and its config declares **no expert keys at all** — a single 17,408-wide
+FFN per layer, so all 27 B parameters are read for every token. An independent study of the same
+architecture family reports the identical 48-of-64 GDN count [6], which we treat as external
+corroboration.
+
+That combination is the interesting part: **parameter count sets decode speed, attention type sets
+context cost.** The 27B is slow because it is dense, and long-context-capable because it is hybrid.
 
 **Finding 2 — the 35B-A3B is also hybrid**, at 30 GDN to 10 full. This invalidated our initial
 KV-cache arithmetic (§6.1) by nearly 5×, compounded by using the wrong head configuration.
