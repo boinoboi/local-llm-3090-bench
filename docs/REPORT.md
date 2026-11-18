@@ -1,5 +1,10 @@
 # Local LLM benchmark — RTX 3090 + RTX 5060 Ti
 
+> **Superseded.** This is an early short summary written before the full study existed.
+> Use [`../STUDY.md`](../STUDY.md) for the current numbers and [`../README.md`](../README.md)
+> for the overview. Several figures here (notably the 23,432 MiB VRAM line and the single-run
+> context tables) were revised during review.
+
 Measured, not estimated. Single stream, one request at a time, one card.
 
 ## Hardware

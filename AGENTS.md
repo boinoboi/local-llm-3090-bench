@@ -7,7 +7,7 @@ Guidance for AI agents working in this repository.
 A measurement study, not an application. The deliverable is a set of numbers that must stay
 true to the raw data in this directory. Code here exists to produce and verify measurements.
 
-- **`STUDY.md`** — the paper (~1,630 lines). Mirror of `~/Videos/Learn/RTX-3090-Inference-Study.md`.
+- **`STUDY.md`** — the paper (~1,631 lines). Mirror of `~/Videos/Learn/RTX-3090-Inference-Study.md`.
 - **`README.md`** — landing page, headline numbers, embedded figures.
 - **`data/results_*.csv`** — the data. Everything else is derived.
 - **`scripts/`** — produce data (measurement harness).

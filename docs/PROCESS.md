@@ -1,45 +1,52 @@
-# GPU inference benchmark — 3090 + 5060 Ti
+# Status and decisions
 
-## Goal
-Measure real decode tok/s and prefill tok/s vs context fill (1 K → 262 K) for the local model
-families, pick the best engine per model, emit CSVs and a publishable research write-up.
+Living document. Update at the end of each working session rather than re-deriving state.
 
-**Status: study written and published.** Document: `~/Videos/Learn/RTX-3090-Inference-Study.md`
-(and `STUDY.md` in the repo).
+## Current status
 
-## Hardware
-- GPU0 RTX 3090 24 GB, sm_86, 936 GB/s — power limit set to **270 W** (user's choice; default 350)
-- GPU1 RTX 5060 Ti 16 GB — unused for inference
-- i9-14900K (PL1 95 W / PL2 125 W), 125 GiB RAM, ~670 GiB free
+**The study is complete and published.** `STUDY.md` (1,631 lines, 43 tables, 6 figures, 17
+references) is the deliverable; `README.md` is the showcase; `data/` holds every measurement.
 
-## Deliverables
-| path | what |
+Last verified: `analysis/assert_paper.py` → **30 passed, 0 failed**.
+
+## Machine state
+
+| | |
 |---|---|
-| `~/Videos/Learn/RTX-3090-Inference-Study.md` | the paper, ~1400 lines, 12k words |
-| https://github.com/boinoboi/local-llm-3090-bench | data + code + figures |
-| `results_all.csv` | everything, normalised |
-| `results_power.csv` | power sweep, 2 workloads, validity flags |
-| `results_accuracy.csv` | auto-graded accuracy, 6 model/seed runs |
-| `results_llama.csv` | llama.cpp context sweeps |
-| `results_mk.csv`, `results_mk_context.csv` | megakernel context data |
-| `results_27b_spec.csv` | 27B speculation ladder |
-| `plots/`, `figures/` | 5 generated figures |
-
-## Key findings
-1. Megakernel 152.8 tok/s vs llama.cpp 71.1 at equal power — 1.54× at ~2× the precision.
-2. Power/performance frontier peaks in efficiency at **270 W** on two independent workloads;
-   speed keeps rising to 385 W. Last 115 W = +8 % speed for +42 % power.
-3. Full 262,144-token context fits 24 GB via 5-bit KV + 8-bit recency window (23,432 MiB).
-4. 27B scored 60/60 on auto-graded tasks vs 35B-A3B 53/60 (z = 2.73, p = 0.0064).
-5. Speculative throughput is content-dependent: acceptance 54–73 % → up to 13 % spread.
-6. `nvidia-smi -pl` fails silently ~16 % of the time; always validate draw.
-
-## Open items
-- [ ] 131 K megakernel replication — blocked by server instability past ~64 K
-- [ ] `draft-dflash2,draft-mtp` stacking never completed
-- [ ] 5060 Ti never evaluated (deliberate: no NVLink)
+| GPU 0 power limit | **270 W** — the measured efficiency optimum. Resets to 230 W on driver reload |
+| `power-profiles-daemon` | **stopped** — it silently reverts the power limit |
+| `ollama` | stopped and disabled |
+| Display blanking | 5 min, display only — no lock, no suspend |
+| ComfyUI | left running (368 MiB) at the user's request |
 
 ## Decisions
-- Keep ComfyUI alive (368 MiB, interactive).
-- Stop ollama permanently during measurements.
-- Report single measurements as indicative only; 3–10 reps where claims depend on them.
+
+1. **270 W, not 385 W.** Integrated energy, not peak draw, is the denominator. 270 W is the minimum
+   joules-per-token point on two independent workloads; 385 W costs ~29 % more per token for ~8 %
+   more speed.
+2. **Report a cost range, not a point.** $0.11–0.17 per million output tokens, because acceptance
+   (hence joules/token) depends on prompt predictability. A single figure was overstated.
+3. **4-bit weights, 5-bit KV.** 2-bit was slower at every depth *and* lower quality; bits belong in
+   the cache, which is what makes 262 K fit.
+4. **Discard invalid power runs rather than average them.** `nvidia-smi -pl` fails silently ~16 % of
+   the time; the CSV carries a `valid` column and the study reports the drop rate.
+5. **Keep corrections visible.** Withdrawn claims stay in the text with their replacement, rather than
+   being quietly deleted. That is why §8.4d, §12 and §13.2 read the way they do.
+6. **The engine comparison is indicative.** Prompt family, draft count and quant differ between the
+   two stacks, so the ratio is stated as ~1.5× and never as a controlled result.
+
+## Open questions
+
+Listed with the experiment that would settle each, in §13.5 of the study. The two most promising:
+
+- **Server vs CLI gap.** The megakernel's server reads slower than its CLI at depth, but the prompts
+  differed, so the gap is unproven. Needs identical prompts through both paths.
+- **Where the 2-bit penalty comes from.** Acceptance, dequantisation cost or kernel maturity — we
+  observed the effect but could not apportion it.
+
+## Not done
+
+- No multi-user / continuous-batching measurements: everything is batch size 1.
+- The RTX 5060 Ti was never evaluated (no NVLink, no benefit for fitting models).
+- `draft-dflash2,draft-mtp` stacking never completed.
+- 131 K megakernel replication exists only via the CLI path, not the server.

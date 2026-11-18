@@ -114,7 +114,7 @@ irreproducible:
 ## Repository layout
 
 ```
-STUDY.md                  the paper — 1,630 lines, 43 tables, 6 figures, 17 references
+STUDY.md                  the paper — 1,631 lines, 43 tables, 6 figures, 17 references
 README.md                 this page
 AGENTS.md                 guidance for AI agents working in this repo
 
