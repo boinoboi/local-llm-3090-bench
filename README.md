@@ -14,7 +14,7 @@ dollars, and which of our assumptions turned out to be wrong.
 | Fastest at full native context | **94.0 tok/s** at 262,144 tokens, 21.2 GB VRAM |
 | Fastest single-stream 27B | **152.8 tok/s** with a single-kernel CUDA engine at 385 W; 141.2 at 270 W |
 | Most efficient operating point | **270 W** — 521.8 tok/s per kW, **$0.114 per million output tokens** |
-| Engine advantage, same model | **1.54×** at equal power, at ~2× the weight precision |
+| Engine advantage, same model | **~1.5×** at equal power (indicative), at ~2× the weight precision |
 | Prefix caching value | a 256 K follow-up costs **0.22 s** instead of 198 s (**904×**) |
 | 2-bit vs 4-bit weights | 2-bit is **slower at every depth** — 58 vs 94 tok/s at 262 K |
 | Accuracy probe | 27B **60/60**, 35B-A3B **53/60** (z = 2.73, p = 0.006) |

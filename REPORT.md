@@ -85,7 +85,7 @@ the newest 2048 positions at q8:
 | preset | K/V bits | max context | peak VRAM |
 |---|---|---|---|
 | q8_0 | 8 / 8 | ~120k | 22,383 MiB |
-| **F** | 5r / 5 | **262,144** | **23,432 MiB measured** |
+| **F** | 5r / 5 | **262,144** | **23,855 MiB** (preset F; our own run measured 23,432) |
 
 Measured cold read of a 229,978-token prompt: **355 s = 647 tok/s** (at 230 W).
 
