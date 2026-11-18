@@ -1,0 +1,6 @@
+*.log
+*.out
+*.gguf
+server_*
+ninfer_*
+mk_*.log
