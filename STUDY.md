@@ -250,7 +250,7 @@ Subsequent work replaced the external draft model with trained heads: Medusa's m
 heads, EAGLE's feature-level drafting, and the Multi-Token Prediction blocks now shipped inside
 Qwen- and DeepSeek-class checkpoints [4]. Our study does not propose a new drafter; it measures
 three existing ones (native MTP, block-diffusion DFlash2, and n-gram lookup) on identical weights
-and finds them within ±15 % of each other — with MTP the only one available in stock `llama.cpp`.
+and finds them trading places by context with no consistent winner — while MTP is the only one available in stock `llama.cpp`.
 
 **Hybrid attention.** Linear-attention formulations [2] and their gated delta-rule successors [1]
 trade unbounded KV growth for a fixed-size recurrent state, and Qwen3-Next established the 3:1
@@ -578,8 +578,8 @@ The same 27B checkpoint (DavidAU "Turbo" IQ2_XS with MTP), 230 W, single measure
 Observations:
 
 1. **Speculation roughly doubles throughput at every depth** (1.8–2.1× across the table).
-2. MTP and DFlash2 are **within ±15 % of each other** and trade places by context; neither
-   dominates. DFlash2's advantage at 131 K (41.2 vs 36.0) is the largest single gap.
+2. MTP and DFlash2 **trade places by context** and neither dominates: the gap ranges from 2 %
+   (at 1 K) to 33 % (at 16 K, in DFlash2's favour), with MTP better at 32–64 K. DFlash2's advantage at 131 K (41.2 vs 36.0) is the largest single gap.
 3. DFlash2 writes to an opaque binary container in the vendor's own engine; MTP works in stock
    `llama.cpp` with a `--spec-type draft-mtp` flag. **The interchangeable one is the practical one.**
 4. Native `llama.cpp` support for `draft-dflash2` exists in recent builds and loaded a stock GGUF
@@ -737,9 +737,9 @@ appeared in §12.5 with repeated identical prompts. Single long requests complet
 layer, not in the model or the kernels. It cost this study its 131 K replication and is recorded as
 a limitation (§14).
 
-For comparison, the same model on `llama.cpp` with q8 KV in single runs decayed from 158 tok/s at
-8 K to 89 tok/s at 64 K (§8.1). Because those are single measurements they carry the same caveat,
-but the direction is consistent with the replicated series.
+For comparison, the megakernel itself with q8_0 KV (a different cache format) decayed from 158 tok/s
+at 8 K to 89 tok/s at 64 K in single runs. Because those are single measurements they carry the same
+caveat, but the direction is consistent with the replicated series.
 
 ## 9. Quality: is the larger model actually smarter?
 
@@ -842,14 +842,14 @@ the measured numbers side by side at 8 K context:
 
 | Configuration | Engine | Decode @ 8 K | Accuracy |
 |---|---|---|---|
-| 35B-A3B Q3_K_M + MTP | llama.cpp | **212 tok/s** | 86.7 % |
-| 27B UD-Q4_K_M + MTP | megakernel | 152 tok/s | 100 % (thinking on) |
-| 27B Turbo IQ2_XS + MTP | llama.cpp | 71 tok/s | **100 %** |
+| 35B-A3B Q3_K_M + MTP | llama.cpp | **250.6 tok/s** | 88.3 % |
+| 27B UD-Q4_K_M + MTP | megakernel | 152.3 tok/s | 100 % (thinking on) |
+| 27B Turbo IQ2_XS + MTP | llama.cpp | 71.1 tok/s | **100 %** |
 
-The 35B remains the **fastest** configuration by a wide margin. The 27B on the megakernel is 28 %
-slower and scored perfectly on this set. Neither dominates: the choice depends on whether the
-workload is throughput-limited or accuracy-limited, and that is a decision the deployed numbers can
-inform but cannot make.
+The 35B remains the **fastest** configuration by a wide margin — 1.6× the megakernel 27B and 3.5×
+the same 27B on `llama.cpp`. The 27B on the megakernel scored perfectly on this set at 61 % of that
+throughput. Neither dominates: the choice depends on whether the workload is throughput-limited or
+accuracy-limited, and that is a decision the deployed numbers can inform but cannot make.
 
 **What this section does not establish:** a general capability ranking, the effect of size
 independent of generation or abliteration, or behaviour on longer, multi-turn or agentic tasks.
@@ -1124,8 +1124,8 @@ tok/s  ≈  bandwidth_effective / (weights_read_per_token + KV_read_per_token)
 ```
 
 - **Weights read per token** is set by *active* parameters, not total. This is why a 35B model with
-  3B active (211–249 tok/s at Q2_K–Q3_K_M) beats a 27B model that applies all its parameters to
-  every token (30 tok/s at Q2_K_P) by roughly 7× at comparable precision.
+  3B active (226.8 tok/s at Q3_K_M, replicated) beats a 27B model that applies all its parameters
+  to every token (30 tok/s at Q2_K_P) by 7.6× at comparable precision.
 - **KV read per token** is set by full-attention layer count and precision, and grows with context.
   This is why everything decays with depth, and why 5-bit caches buy context rather than accuracy.
 
