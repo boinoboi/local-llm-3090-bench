@@ -167,13 +167,15 @@ did this:
 
 1. **Hybrid attention.** Qwen3.x-class models replace three of every four attention layers with
    Gated DeltaNet (GDN) linear-attention layers, whose recurrent state is fixed-size rather than
-   growing with context [1, 2, 3]. The KV cache shrinks by an order of magnitude, and decode cost
-   stops scaling with sequence length in the usual quadratic way.
+   growing with context [1, 2, 3]. On a 27B model that cuts the layers holding KV from 64 to 16 —
+   a 4× reduction in cache, which is the difference between a 68 GB cache and a 17 GB one at full
+   context — and removes the quadratic term from three quarters of the stack.
 2. **Speculative decoding with native draft heads.** Rather than a separate draft model,
    modern checkpoints ship Multi-Token Prediction heads trained jointly with the model [4, 5].
    The draft is free at serving time; only verification costs.
-3. **Quantisation that survives.** 2-4 bit weight formats plus mixed-precision KV caches let a
-   27B model's working set fit inside 24 GB at full native context.
+3. **Quantisation that survives.** 4-bit weight formats plus mixed-precision KV caches let a 27B
+   model's working set fit inside 24 GB at full native context. We began this study assuming lower
+   would be better and were wrong: §8.2 shows 2-bit is both slower and no smaller in practice.
 
 Each of these is well studied in isolation. What is harder to find is a single, honest,
 end-to-end measurement on one specific machine answering: *what should I actually run, at what
@@ -1200,14 +1202,30 @@ Each was corrected by reading a config file, a tensor table, or a log line — n
 
 ### 13.4 Practical recommendation
 
-For a single 24 GB card serving one user:
+For a single 24 GB card serving one user, the choices reduce to a short decision table. Every row is
+backed by a measurement in this document.
 
-1. **Model:** a hybrid MoE with ~3 B active parameters, or a 27B hybrid at Q4_K_M.
-2. **Engine:** whichever gives fused multi-row verification; the difference is ~1.5–2×.
-3. **KV:** asymmetric low-bit with a high-precision recency window. This is what buys 262 K.
-4. **Speculation:** native MTP — free, lossless, and interchangeable across engines.
-5. **Power:** 270 W for cost, 330 W for latency. Never the maximum.
-6. **Context:** budget it deliberately. Decode at 131 K is half of decode at 8 K.
+| Requirement | Choose | Because |
+|---|---|---|
+| Maximum tokens/s, short context | 35B-A3B MoE, Q3_K_M, `llama.cpp`, MTP | 250.6 tok/s at 8 K (§8.1) |
+| Maximum tokens/s, full 262 K context | same, with q4_0 KV | 94.0 tok/s at 262 K, 21.2 GB (§8.1) |
+| Best accuracy per token | 27B at Q4_K_M, megakernel | 60/60 auto-graded; 27B fits at Q4 once KV is compressed (§9) |
+| Lowest cost per token | 270 W on either model | 521.8 tok/s per kW, $0.114/M (§10) |
+| Lowest latency per watt | 330 W | 98.4 % of peak speed at 86 % of peak power (§10.2) |
+| Longest context on 24 GB | 5-bit K/V with an 8-bit recency window | 262,144 tokens at 23,432 MiB (§6.3) |
+| Fastest to configure | stock `llama.cpp` + `--spec-type draft-mtp` | no custom build; 226–250 tok/s on the 35B |
+| Rejected | 2-bit weights | slower at every depth *and* lower quality (§8.2, §13.2) |
+
+Four rules that generalise beyond this machine:
+
+1. **Count active parameters, not total.** Decode reads weights per token; a 3 B-active MoE beats a
+   dense model nine times its active size.
+2. **Spend bits on the cache, not the weights.** 5-bit KV buys 142 K of context; 2-bit weights buy
+   nothing and cost speed.
+3. **Profile power, do not assume it.** The default limit is not the efficient one, and the gap is
+   larger than intuition suggests because the bottleneck moves from bandwidth to compute.
+4. **Calibrate prompts against the tokenizer and validate the power limit from draw.** Both failure
+   modes silently produce plausible-looking wrong numbers.
 
 ---
 
@@ -1220,7 +1238,7 @@ For a single 24 GB card serving one user:
 | Megakernel deep-context points come from the CLI path | Prompt predictability differs from the server runs | Both paths reported; no cross-path speed-up claimed (§8.4d) |
 | Synthetic prompts depress draft acceptance | Speed-ups understated | Acceptance reported per row; code-prompt replication in §10.5 shows +37.6 % |
 | Power state differs between datasets | Cross-table comparisons can mislead | Every table states its power limit |
-| No independent accuracy evaluation | Cannot confirm upstream KL claims | §7.1 compares only engines we ran; accuracy figures are tagged [R] |
+| Upstream KL figure not independently verified | The 0.0015 claim rests on its author | Tagged [R]; our own accuracy probe (§9) is independent of it |
 | Thermal state uncontrolled | Possible throttling at high limits | Within-level spread < 1.3 % argues against significant drift, but not proven |
 | The 5060 Ti was never evaluated | No statement about multi-GPU | Deliberately out of scope: no NVLink, no benefit for fitting models |
 | Single stream only | No batching or multi-user | Explicit: all measurements are batch = 1 |
