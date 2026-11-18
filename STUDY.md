@@ -19,6 +19,7 @@
 > | Fastest at 262 K | **94.0 tok/s** — 35B-A3B Q3_K_M, four-run median |
 > | Engine gain, same model | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
 > | 2-bit vs 4-bit | **slower** at every depth — 58 vs 94 tok/s at 262 K |
+> | Prefix caching, 256 K | a follow-up turn costs **0.22 s** instead of 198 s (**904×**) |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
 > | What dominates the bill | **idle draw + lit monitors**, 60–70 % of a 24/7 machine |
 
