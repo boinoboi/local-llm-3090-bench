@@ -747,15 +747,24 @@ during the second 64 K repetition and refused connections thereafter; the same d
 §12.5 with repeated identical prompts. Single long requests complete correctly — a 229,978-token cold
 read finished in 355 s — so this is state management, not the kernels.
 
-**d) The CLI is roughly 25 % faster than the server at long context.** At 115,711 tokens the CLI
-sustained a median **150.1 tok/s** while the server managed 113 tok/s at 8 K. That is not a plausible
-scaling curve: throughput should fall with depth, not rise by a third. The engine is the same binary
-and the same weights; what differs is that the server parks conversation checkpoints in pinned host
-memory and manages an 8 GiB host cache — the same machinery that crashes in (c).
+**d) The CLI and server paths are not directly comparable, and we declined to claim they were.**
 
-We therefore report **both paths**: the engine's intrinsic capability is the CLI figure, while **a
-deployment fronted by the server should expect roughly 25 % less** at long context. That gap is a
-finding about serving overhead, not about the model.
+At 115,711 tokens the CLI sustained a median **150.1 tok/s** — *higher* than the server's 113 tok/s at
+8 K, which looks like a scaling curve running backwards. Two explanations were available:
+
+1. **Server overhead** — checkpoint parking in pinned host memory, an 8 GiB host cache, and the state
+   machinery that crashes in (c).
+2. **Prompt predictability** — the CLI test used a repeated prose paragraph, which yields
+   **7.9 tokens per cycle**; the server tests used unique random-word prompts, which accept at
+   2.5–4 tokens per cycle.
+
+The second explanation is sufficient on its own. Speculative throughput scales with accepted tokens
+per cycle, and 7.9 versus ~3 is a 2.6× difference in the thing that determines speed. We cannot
+separate the two causes with the data collected, because the prompts differ along with the path.
+
+**We therefore report the CLI figure as an upper bound for a maximally predictable workload and do
+not claim a server/CLI speed-up.** The one thing the two paths do establish is that the engine is
+stable on the CLI at 115 K and unstable on the server at the same depth — which is what (c) is about.
 
 ## 9. Quality: is the larger model actually smarter?
 
@@ -1208,7 +1217,7 @@ For a single 24 GB card serving one user:
 |---|---|---|
 | Single machine, single GPU | No cross-hardware generalisation | Stated throughout; all claims are RTX 3090 / SM 8.6 |
 | Some context cells are single measurements | Unknown variance per cell | The main series uses 4 reps (spread 0.5–5.6 %); single-run cells are labelled indicative |
-| Megakernel replication stops at 64 K on the server path | Server-path deep-context points unavailable | CLI replication at 115 K obtained instead (§8.4d); the 25 % path gap is reported |
+| Megakernel deep-context points come from the CLI path | Prompt predictability differs from the server runs | Both paths reported; no cross-path speed-up claimed (§8.4d) |
 | Synthetic prompts depress draft acceptance | Speed-ups understated | Acceptance reported per row; code-prompt replication in §10.5 shows +37.6 % |
 | Power state differs between datasets | Cross-table comparisons can mislead | Every table states its power limit |
 | No independent accuracy evaluation | Cannot confirm upstream KL claims | §7.1 compares only engines we ran; accuracy figures are tagged [R] |
