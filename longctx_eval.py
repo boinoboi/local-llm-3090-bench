@@ -27,7 +27,7 @@ def pad_for(n_tokens):
     return PARA * max(1, int(n_tokens / 38))
 
 
-def chat(prompt, maxtok=900, timeout=3600):
+def chat(prompt, maxtok=int(os.environ.get("LC_MAXTOK", "900")), timeout=3600):
     body = {"messages": [{"role": "user", "content": prompt}],
             "max_tokens": maxtok, "temperature": 0,
             "chat_template_kwargs": {"thinking": False, "enable_thinking": False}}

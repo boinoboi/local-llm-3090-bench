@@ -82,5 +82,61 @@ check("16-layer fp16 KV at 262 K (GB)", 2 * 16 * 4 * 256 * 2 * 262144 / 1e9, 17.
 check("35B-A3B KV/token (KB)", 2 * 10 * 2 * 256 * 2 / 1024, 20.0, 0.01)
 check("35B-A3B KV at 262 K (GB)", 2 * 10 * 2 * 256 * 2 * 262144 / 1e9, 5.37, 0.01)
 
+
+print("== Opus review items ==")
+
+# (1) pooled two-proportion p-value
+acc2 = rows("results_accuracy.csv")
+tot2 = collections.Counter()
+for r in acc2:
+    if r["model"].startswith("27B_Turbo"):
+        tot2["27B"] += int(r["correct"])
+    elif r["model"].startswith("35B-A3B_Q3KM_heretic_tok1200"):
+        tot2["35B"] += int(r["correct"])
+n1 = n2 = 60
+p1, p2 = tot2["27B"] / n1, tot2["35B"] / n2
+pooled = (tot2["27B"] + tot2["35B"]) / (n1 + n2)
+se2 = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
+z2 = (p1 - p2) / se2
+pval2 = 2 * (1 - 0.5 * (1 + math.erf(abs(z2) / math.sqrt(2))))
+check("pooled p-value", pval2, 0.0064, 0.02)
+
+# (2) integrated energy at 270 W
+en = rows("results_energy.csv")
+e270 = [float(r["J_per_token"]) for r in en if int(float(r["PL_W"])) == 270]
+check("J/token at 270 W (integrated)", statistics.median(e270), 2.830, 0.01)
+check("energy runs at 270 W", len(e270), 3, 0)
+
+# (3) cost per 1M tokens on the integrated basis
+jt = statistics.median(e270)
+kwh = jt * 1e6 / 3.6e6
+usd_int = kwh * 20.04 / 93.44
+check("USD per 1M (integrated, 270 W)", usd_int, 0.169, 0.02)
+
+# (4) six valid 290 W retests
+pw2 = [r for r in rows("results_power.csv")
+       if r.get("valid") == "yes" and r.get("workload") == "code"
+       and int(float(r["PL_W"])) == 290]
+check("valid 290 W rows", len(pw2), 6, 0)
+check("290 W peak draw actually applied",
+      statistics.median(float(r["draw_W_peak"]) for r in pw2), 290.0, 0.02)
+
+# (5) integrated-energy spread is small at every level
+by_pl = collections.defaultdict(list)
+for r in en:
+    by_pl[int(float(r["PL_W"]))].append(float(r["J_per_token"]))
+worst = max((max(v) - min(v)) / statistics.median(v) for v in by_pl.values())
+check("worst within-level J/token spread < 8 %", worst * 100, 7.0, 1.0)
+
+
+# (6) §9.6 padded-probe counts at max_tokens = 1200
+lc = [r for r in rows("results_longctx.csv") if float(r.get("ctx_target", 0) or 0) in (1024, 65536)]
+lc1200 = [r for r in lc if r.get("model", "").find("longctx") >= 0]
+by_d = collections.defaultdict(int)
+for r in lc1200:
+    by_d[int(float(r["ctx_target"]))] += int(r["correct"])
+check("9.6 padded 1 K correct", by_d[1024], 26, 0)
+check("9.6 padded 64 K correct", by_d[65536], 27, 0)
+
 print(f"\n{ok} passed, {fail} failed")
 raise SystemExit(1 if fail else 0)
