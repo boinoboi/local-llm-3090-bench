@@ -561,17 +561,20 @@ Both engines respond very differently to the same increase in power. Raising the
 compute-bound one is not. *We do not state an absolute ratio at 270 W because the two were measured on
 different prompt families, but the asymmetry is unambiguous.*
 
-At higher power limits the gap therefore widens, because the megakernel is compute-bound while llama.cpp is
-bandwidth-bound:
+The megakernel's own scaling, from the power sweep of §10.2, for reference:
 
-| Power limit | megakernel @ 8 K | vs llama.cpp @ 230 W |
+| Power limit | megakernel @ 8 K | ÷ the 71.1 baseline |
 |---|---|---|
-| 230 W | 109.4 | 1.54× |
+| 230 W | 109.4 | **1.54×** ← the only matched comparison |
 | 270 W | 141.2 | 1.99× |
 | 330 W | 150.3 | 2.11× |
 | 385 W | 152.3 | 2.14× |
 
-**The engine is 1.5× faster at identical power while carrying roughly twice the weight precision.** Upstream's
+Only the 230 W row compares two measurements taken on the same prompt family. The rows below divide
+megakernel numbers from a *code* prompt by a `llama.cpp` number from a *random-word* prompt, so they
+overstate the ratio and are shown only to make the scaling visible.
+
+**At matched conditions the engine is 1.5× faster while carrying roughly twice the weight precision.** Upstream's
 own comparison reports 2.0× short-prompt and 2.6× at 98 K against `llama.cpp` b11982 [R], which is
 consistent with our direction and magnitude.
 
