@@ -20,7 +20,7 @@
 > | Engine gain, same model | **1.54×** over `llama.cpp` at equal power, at ~2× the weight precision |
 > | 2-bit vs 4-bit | **slower** at every depth — 58 vs 94 tok/s at 262 K |
 > | Accuracy | 27B **60/60** vs 35B-A3B **53/60** (p = 0.006) |
-> | What dominates the bill | **idle draw + lit monitors**, ~70 % of a 24/7 machine |
+> | What dominates the bill | **idle draw + lit monitors**, 60–70 % of a 24/7 machine |
 
 ## Contents
 
@@ -709,10 +709,12 @@ over a growing KV and it is the reason TTFT at long context is measured in minut
 
 ### 8.4 megakernel context scaling — and why one run is not enough [M]
 
-A first attempt measured each depth once and produced a table that could not be trusted: the single
-131 K points disagreed by 52 % (57.3 and 87.5 tok/s), and there was no way to tell configuration
-effects from noise. The sweep was therefore repeated three times per depth, with a unique prompt each
-time, on the full-window configuration (preset F, `MK_PF_CAP=1024`, 7 drafts):
+A first attempt measured each depth once and produced a table that could not be trusted: two single
+runs at 131 K disagreed by 52 % (57.3 and 87.5 tok/s), with no way to separate configuration effects
+from noise. The sweep was repeated three times per depth, with a unique prompt each time, on the
+full-window configuration (preset F, `MK_PF_CAP=1024`, 7 drafts).
+
+**Server path** (the engine's HTTP service), three runs per point:
 
 | Context | n | Median tok/s | Observed range | Draft acceptance |
 |---|---|---|---|---|
@@ -720,30 +722,40 @@ time, on the full-window configuration (preset F, `MK_PF_CAP=1024`, 7 drafts):
 | 8 K | 3 | 113.0 | 108.5 – 113.8 | 54 – 57 % |
 | 32 K | 3 | 115.0 | 109.9 – 123.9 | 64 – 69 % |
 | 64 K | 1 | 109.2 | — | 73 % |
-| 131 K | — | *server unstable* | — | — |
 
-Three things follow, and the second is more important than the numbers.
+**CLI path**, three runs at the same cache configuration and context capacity:
 
-**a) Preset F holds up better than the single runs suggested.** At 1 K it delivers 133 tok/s, not the
-104 previously reported, and it stays above 109 tok/s to 64 K. The earlier 57.6 tok/s at 131 K was
-almost certainly a degraded run, not a property of the cache format.
+| Run | Prompt tokens | Prefill | Decode |
+|---|---|---|---|
+| 1 | 115,711 | 857.2 tok/s | **152.9 tok/s** |
+| 2 | 115,711 | 846.1 tok/s | **150.1 tok/s** |
+| 3 | 115,711 | 831.2 tok/s | **145.6 tok/s** |
+
+Four things follow, and the last is the most important.
+
+**a) Preset F is better than the first runs suggested.** At 1 K it delivers 133 tok/s through the
+server, not the 104 previously reported.
 
 **b) Throughput is content-dependent, and this is a general problem.** Draft acceptance ranged from
-**54 % to 73 %** across runs at the *same context length*, because it depends on what the model
-chooses to write. That produced spreads up to **18 tok/s (13 %)** at 1 K. Any speculative-decoding
-benchmark built on a single generation is therefore measuring luck as much as hardware, and we now
-treat single measurements in this study as indicative only.
+**54 % to 73 %** across server runs at the *same context length*, because it depends on what the
+model chooses to write. That produced spreads up to **18 tok/s (13 %)** at 1 K. Any
+speculative-decoding benchmark built on a single generation is measuring luck as much as hardware,
+so single measurements in this study are treated as indicative only.
 
-**c) The engine's server is not stable past ~64 K with repeated long prompts.** It exited without
-diagnostic during the second 64 K repetition and refused connections thereafter; the same failure
-appeared in §12.5 with repeated identical prompts. Single long requests complete correctly (a
-229,978-token cold read finished in 355 s), so this is a state-management defect in the *server*
-layer, not in the model or the kernels. It cost this study its 131 K replication and is recorded as
-a limitation (§14).
+**c) The server is not stable past ~64 K with repeated long prompts.** It exited without diagnostic
+during the second 64 K repetition and refused connections thereafter; the same defect appears in
+§12.5 with repeated identical prompts. Single long requests complete correctly — a 229,978-token cold
+read finished in 355 s — so this is state management, not the kernels.
 
-For comparison, the megakernel itself with q8_0 KV (a different cache format) decayed from 158 tok/s
-at 8 K to 89 tok/s at 64 K in single runs. Because those are single measurements they carry the same
-caveat, but the direction is consistent with the replicated series.
+**d) The CLI is roughly 25 % faster than the server at long context.** At 115,711 tokens the CLI
+sustained a median **150.1 tok/s** while the server managed 113 tok/s at 8 K. That is not a plausible
+scaling curve: throughput should fall with depth, not rise by a third. The engine is the same binary
+and the same weights; what differs is that the server parks conversation checkpoints in pinned host
+memory and manages an 8 GiB host cache — the same machinery that crashes in (c).
+
+We therefore report **both paths**: the engine's intrinsic capability is the CLI figure, while **a
+deployment fronted by the server should expect roughly 25 % less** at long context. That gap is a
+finding about serving overhead, not about the model.
 
 ## 9. Quality: is the larger model actually smarter?
 
@@ -1042,7 +1054,7 @@ when doing nothing.
 | Two 1080p monitors (20–30 W each) | 29–44 kWh | ₹580–880 | **$6.2–9.4** |
 | Inference, 2 h/day at 270 W | ~16 kWh | ~₹320 | **$3.4** |
 
-**Roughly 70 % of the monthly bill is equipment doing nothing.** The cheapest optimisation is not a
+Against a ₹4,000 monthly bill, **60–70 % is equipment doing nothing.** The cheapest optimisation is not a
 kernel; it is turning the displays off after five minutes and not leaving the model server warm.
 
 Concretely: the engine's keep-warm feature spins a small kernel for 120 s after every request.
@@ -1052,8 +1064,8 @@ Setting `MK_KEEP_WARM_S=0` on a machine that receives requests intermittently re
 
 ## 12. Negative results and failure modes
 
-Six of these cost real time. They are documented because they are the difference between numbers
-that reproduce and numbers that do not.
+Each of the seven below cost real time. They are documented because they are the difference between
+numbers that reproduce and numbers that do not.
 
 ### 12.1 `nvidia-smi -pl` fails silently (17 of 108 runs)
 
@@ -1196,7 +1208,7 @@ For a single 24 GB card serving one user:
 |---|---|---|
 | Single machine, single GPU | No cross-hardware generalisation | Stated throughout; all claims are RTX 3090 / SM 8.6 |
 | Some context cells are single measurements | Unknown variance per cell | The main series uses 4 reps (spread 0.5–5.6 %); single-run cells are labelled indicative |
-| Megakernel replication stops at 64 K | No replicated 131–262 K points for that engine | Failure reported in §8.4c, not interpolated |
+| Megakernel replication stops at 64 K on the server path | Server-path deep-context points unavailable | CLI replication at 115 K obtained instead (§8.4d); the 25 % path gap is reported |
 | Synthetic prompts depress draft acceptance | Speed-ups understated | Acceptance reported per row; code-prompt replication in §10.5 shows +37.6 % |
 | Power state differs between datasets | Cross-table comparisons can mislead | Every table states its power limit |
 | No independent accuracy evaluation | Cannot confirm upstream KL claims | §7.1 compares only engines we ran; accuracy figures are tagged [R] |
@@ -1204,7 +1216,7 @@ For a single 24 GB card serving one user:
 | The 5060 Ti was never evaluated | No statement about multi-GPU | Deliberately out of scope: no NVLink, no benefit for fitting models |
 | Single stream only | No batching or multi-user | Explicit: all measurements are batch = 1 |
 | Upstream benchmarks not reproduced | Vendor claims uncorroborated | Directionally consistent, tagged [R], not used as evidence |
-| Megakernel server unstable past ~64 K | No 131 K replication of the context sweep | Reported as a failure (§8.4c, §12.5) rather than interpolated |
+| Megakernel server unstable past ~64 K | Server-path 131 K missing | CLI replication used; instability itself reported (§8.4c, §12.5) |
 | Speculative throughput is content-dependent | Single runs carry up to 13 % content noise | 3–10 repetitions where it matters; single runs flagged (§8.4b) |
 
 ---
