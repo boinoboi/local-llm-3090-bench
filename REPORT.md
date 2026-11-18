@@ -35,27 +35,37 @@ Measured, not estimated. Single stream, one request at a time, one card.
 The megakernel is a single CUDA kernel per speculative cycle: the model's own MTP
 head drafts 7 tokens, and one int8 tensor-core pass verifies all 8 rows.
 
-## Power sweep — 8k context, 10 runs per level
+## Power sweep — 8k context, 6-10 valid runs per level
+
+A run is counted only if the card actually drew within 7% of its budget; 17 rows
+where `nvidia-smi -pl` had not taken effect were dropped rather than averaged in.
 
 | limit | decode t/s | peak W | tok/s per kW | energy/token | gain |
 |---|---|---|---|---|---|
-| 230 | 109.39 | 232 | 470.9 | 2.12 J | — |
-| 250 | 126.77 | 251 | 505.6 | 1.98 J | +15.9% |
-| **270** | 141.16 | 271 | **521.8** | **1.92 J** | +11.4% |
-| 290 | *invalid* | 230 | — | — | limit failed to apply |
-| 310 | 148.70 | 310 | 480.1 | 2.08 J | +37.5% |
-| **330** | 150.31 | 330 | 455.6 | 2.20 J | +1.1% |
-| 350 | 151.36 | 348 | 435.2 | 2.30 J | +0.7% |
-| 370 | 152.31 | 370 | 411.9 | 2.43 J | +0.6% |
-| 385 | 152.31 | 385 | 396.1 | 2.53 J | +0.0% |
+| 230 | 109.39 | 232 | 470.9 | 2.124 J | — |
+| 250 | 126.77 | 251 | 505.6 | 1.978 J | +15.9% |
+| **270** | 141.16 | 271 | **521.8** | **1.916 J** | +11.4% |
+| 280 | 143.06 | 281 | 509.9 | 1.961 J | +1.3% |
+| 290 | 146.25 | 290 | 504.5 | 1.982 J | +2.2% |
+| 300 | 147.74 | 300 | 493.3 | 2.027 J | +1.0% |
+| 310 | 148.70 | 310 | 480.1 | 2.083 J | +0.6% |
+| **330** | 150.31 | 330 | 455.6 | 2.195 J | +1.1% |
+| 350 | 151.36 | 348 | 435.2 | 2.298 J | +0.7% |
+| 370 | 152.31 | 370 | 411.9 | 2.428 J | +0.6% |
+| 385 | 152.75 | 385 | 397.1 | 2.519 J | +0.3% |
 
-- **Efficiency optimum: 270 W** (best tok/s per watt, lowest energy per token).
-- **Speed knee: 330 W** — 98.7% of maximum speed at 86% of maximum power.
-- **385 W buys 1.3% more speed for 17% more power.** Not worth it.
+- **Most efficient: 270 W** — best tok/s per watt, lowest energy per token.
+- **Speed knee: 310-330 W** — 97-98% of maximum speed.
+- **385 W buys 1.6% more speed for 42% more power** than 270 W.
 
-Draft acceptance stays flat at 49.9% across every level, so the power curve is
-pure clock scaling, not a speculation effect.
+Draft acceptance was 49.9% at every level, so this is pure clock scaling.
 
+### Gotcha: `nvidia-smi -pl` does not always take effect
+
+The first sweep produced a bogus 290 W point (108 t/s, peak draw 230 W) and four
+bad 385 W runs. Power-limit changes can lag or silently fail; a run must be
+validated by checking actual draw, not by trusting the command's exit status.
+That is why every row carries `draw_W_peak` and a `valid` column.
 ## Context scaling — megakernel
 
 | context | decode t/s | KV |
